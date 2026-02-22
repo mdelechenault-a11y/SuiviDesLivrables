@@ -3,8 +3,8 @@ import os
 import csv
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView,
-    QLabel, QHBoxLayout, QGroupBox, QDateEdit, QComboBox, QPushButton,
-    QFileDialog, QMessageBox
+    QLabel, QHBoxLayout, QDateEdit, QComboBox, QPushButton,
+    QFileDialog, QMessageBox, QDialog, QFormLayout, QDialogButtonBox
 )
 from PyQt6.QtCore import Qt, QDate
 import qtawesome as qta
@@ -20,6 +20,69 @@ class NumericTableWidgetItem(QTableWidgetItem):
         except (ValueError, TypeError, AttributeError):
             return super().__lt__(other)
 
+class TimeReportFilterDialog(QDialog):
+    """Dialogue pour sélectionner les filtres du rapport de temps."""
+    def __init__(self, parent, current_filters, users, projects, activities):
+        super().__init__(parent)
+        self.setWindowTitle("Filtres du Rapport")
+        self.setWindowIcon(qta.icon('fa5s.filter', color='white'))
+        self.setMinimumWidth(400)
+
+        layout = QFormLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        # Date editors
+        self.start_date_edit = QDateEdit(calendarPopup=True)
+        self.start_date_edit.setDate(current_filters.get('start_date', QDate.currentDate().addMonths(-1)))
+        self.end_date_edit = QDateEdit(calendarPopup=True)
+        self.end_date_edit.setDate(current_filters.get('end_date', QDate.currentDate()))
+        layout.addRow("Du:", self.start_date_edit)
+        layout.addRow("Au:", self.end_date_edit)
+
+        # User combo
+        self.user_combo = QComboBox()
+        self.user_combo.addItem("Tous", userData=None)
+        for user in users:
+            self.user_combo.addItem(user['name'], userData=user['id'])
+        if current_filters.get('user_id'):
+            self.user_combo.setCurrentIndex(self.user_combo.findData(current_filters['user_id']))
+        layout.addRow("Utilisateur:", self.user_combo)
+
+        # Project combo
+        self.project_combo = QComboBox()
+        self.project_combo.addItem("Tous", userData=None)
+        for project in projects:
+            self.project_combo.addItem(f"{project['code']} - {project['nom']}", userData=project['id'])
+        if current_filters.get('project_id'):
+            self.project_combo.setCurrentIndex(self.project_combo.findData(current_filters['project_id']))
+        layout.addRow("Projet:", self.project_combo)
+
+        # Activity combo
+        self.activity_combo = QComboBox()
+        self.activity_combo.addItem("Toutes", userData=None)
+        for activity in activities:
+            self.activity_combo.addItem(activity['name'], userData=activity['id'])
+        if current_filters.get('activity_type_id'):
+            self.activity_combo.setCurrentIndex(self.activity_combo.findData(current_filters['activity_type_id']))
+        layout.addRow("Activité:", self.activity_combo)
+
+        # Buttons
+        self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        layout.addRow(self.buttons)
+
+    def get_filters(self):
+        return {
+            'start_date': self.start_date_edit.date(),
+            'end_date': self.end_date_edit.date(),
+            'user_id': self.user_combo.currentData(),
+            'project_id': self.project_combo.currentData(),
+            'activity_type_id': self.activity_combo.currentData()
+        }
+
 class TimeReportView(QWidget):
     """
     Vue pour afficher un rapport des temps pointés avec des filtres.
@@ -29,20 +92,37 @@ class TimeReportView(QWidget):
         self.project_controller = ProjectController()
         self.user_controller = UserController()
 
+        # Filter state
+        self.start_date = QDate.currentDate().addMonths(-1)
+        self.end_date = QDate.currentDate()
+        self.user_id = None
+        self.project_id = None
+        self.activity_type_id = None
+        self.user_name_filter = "Tous"
+        self.project_name_filter = "Tous"
+        self.activity_name_filter = "Toutes"
+
         self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(20, 20, 20, 20)
+        self.layout.setSpacing(15)
 
         # --- Titre ---
+        title_bar = QHBoxLayout()
+        icon_label = QLabel()
+        icon_label.setPixmap(qta.icon('fa5s.clock', color='white').pixmap(32, 32))
         title = QLabel("Rapport de Pointages")
         font = title.font()
-        font.setPointSize(16)
+        font.setPointSize(18)
         font.setBold(True)
         title.setFont(font)
-        self.layout.addWidget(title)
-
-        # --- Barre de Filtres ---
-        self._setup_filters()
+        title_bar.addWidget(icon_label)
+        title_bar.addSpacing(10)
+        title_bar.addWidget(title)
+        title_bar.addStretch()
+        self.layout.addLayout(title_bar)
 
         # --- Tableau Principal ---
+        self._setup_toolbar()
         self.table = QTableWidget()
         self.table.setColumnCount(6)
         self.table.setHorizontalHeaderLabels(["Date Réalisation", "Ressource", "Projet", "Tâche", "Type d'Activité", "Temps Déclaré"])
@@ -64,72 +144,59 @@ class TimeReportView(QWidget):
 
         self.refresh_data()
 
-    def _setup_filters(self):
-        filter_group = QGroupBox("Filtres")
-        filter_layout = QHBoxLayout()
+    def _setup_toolbar(self):
+        toolbar_layout = QHBoxLayout()
+        toolbar_layout.setContentsMargins(0, 0, 0, 10)
 
-        self.start_date_edit = QDateEdit(calendarPopup=True)
-        self.start_date_edit.setDate(QDate.currentDate().addMonths(-1))
-        self.end_date_edit = QDateEdit(calendarPopup=True)
-        self.end_date_edit.setDate(QDate.currentDate())
-        
-        self.user_combo = QComboBox()
-        self.project_combo = QComboBox()
-        self.activity_combo = QComboBox()
-        
-        self.filter_button = QPushButton("Appliquer")
-        self.filter_button.clicked.connect(self.apply_filters)
+        self.filter_button = QPushButton(qta.icon('fa5s.filter'), " Filtres")
+        self.filter_button.clicked.connect(self._open_filter_dialog)
+        toolbar_layout.addWidget(self.filter_button)
 
-        filter_layout.addWidget(QLabel("Du:"))
-        filter_layout.addWidget(self.start_date_edit)
-        filter_layout.addWidget(QLabel("Au:"))
-        filter_layout.addWidget(self.end_date_edit)
-        filter_layout.addWidget(QLabel("Utilisateur:"))
-        filter_layout.addWidget(self.user_combo)
-        filter_layout.addWidget(QLabel("Projet:"))
-        filter_layout.addWidget(self.project_combo)
-        filter_layout.addWidget(QLabel("Activité:"))
-        filter_layout.addWidget(self.activity_combo)
-        filter_layout.addStretch()
-        filter_layout.addWidget(self.filter_button)
+        self.active_filters_label = QLabel()
+        self.active_filters_label.setStyleSheet("color: #aaa;")
+        toolbar_layout.addWidget(self.active_filters_label)
+
+        toolbar_layout.addStretch()
 
         self.export_button = QPushButton(qta.icon('fa5s.file-csv'), " Exporter en CSV")
         self.export_button.clicked.connect(self.export_to_csv)
-        filter_layout.addWidget(self.export_button)
+        toolbar_layout.addWidget(self.export_button)
 
-        filter_group.setLayout(filter_layout)
-        self.layout.addWidget(filter_group)
+        self.layout.addLayout(toolbar_layout)
 
-    def populate_filters(self):
-        # Utilisateurs
-        self.user_combo.clear()
-        self.user_combo.addItem("Tous", userData=None)
+    def _open_filter_dialog(self):
+        # Fetch fresh data for combos
         users = self.user_controller.get_all_users()
-        for user in users:
-            self.user_combo.addItem(user['name'], userData=user['id'])
-
-        # Projets
-        self.project_combo.clear()
-        self.project_combo.addItem("Tous", userData=None)
         projects = self.project_controller.get_all_projects()
-        for project in projects:
-            self.project_combo.addItem(f"{project['code']} - {project['nom']}", userData=project['id'])
-
-        # Types d'activités
-        self.activity_combo.clear()
-        self.activity_combo.addItem("Toutes", userData=None)
         activities = self.project_controller.get_all_activity_types()
-        for activity in activities:
-            self.activity_combo.addItem(activity['name'], userData=activity['id'])
+
+        current_filters = {
+            'start_date': self.start_date,
+            'end_date': self.end_date,
+            'user_id': self.user_id,
+            'project_id': self.project_id,
+            'activity_type_id': self.activity_type_id,
+        }
+
+        dialog = TimeReportFilterDialog(self, current_filters, users, projects, activities)
+        if dialog.exec():
+            new_filters = dialog.get_filters()
+            self.start_date = new_filters['start_date']
+            self.end_date = new_filters['end_date']
+            self.user_id = new_filters['user_id']
+            self.project_id = new_filters['project_id']
+            self.activity_type_id = new_filters['activity_type_id']
+            
+            self.user_name_filter = dialog.user_combo.currentText()
+            self.project_name_filter = dialog.project_combo.currentText()
+            self.activity_name_filter = dialog.activity_combo.currentText()
+
+            self.apply_filters()
 
     def apply_filters(self):
-        start_date = self.start_date_edit.date().toPyDate()
-        end_date = self.end_date_edit.date().toPyDate()
-        user_id = self.user_combo.currentData()
-        project_id = self.project_combo.currentData()
-        activity_type_id = self.activity_combo.currentData()
-
-        time_entries = self.project_controller.get_time_entries_report(start_date, end_date, user_id, project_id, activity_type_id)
+        time_entries = self.project_controller.get_time_entries_report(
+            self.start_date.toPyDate(), self.end_date.toPyDate(), self.user_id, self.project_id, self.activity_type_id
+        )
         
         self.table.setSortingEnabled(False)
         self.table.setRowCount(0)
@@ -157,22 +224,32 @@ class TimeReportView(QWidget):
         self.table.sortByColumn(0, Qt.SortOrder.AscendingOrder)
 
         self.total_hours_label.setText(f"Total des heures : {total_hours:.2f}")
+        self._update_active_filters_label()
+
+    def _update_active_filters_label(self):
+        filters = []
+        filters.append(f"Période: {self.start_date.toString('dd/MM/yy')} au {self.end_date.toString('dd/MM/yy')}")
+        
+        if self.user_id:
+            filters.append(f"Utilisateur: {self.user_name_filter}")
+        
+        if self.project_id:
+            # Affiche seulement le code du projet pour la concision
+            filters.append(f"Projet: {self.project_name_filter.split(' - ')[0]}")
+
+        if self.activity_type_id:
+            filters.append(f"Activité: {self.activity_name_filter}")
+
+        self.active_filters_label.setText(f"Filtres actifs : {', '.join(filters)}")
 
     def refresh_data(self):
-        """Rafraîchit les filtres et applique les filtres pour recharger les données."""
-        self.populate_filters()
+        """Applique les filtres pour recharger les données."""
         self.apply_filters()
 
     def export_to_csv(self):
         """Exporte les données actuellement filtrées dans un fichier CSV."""
-        start_date = self.start_date_edit.date().toPyDate()
-        end_date = self.end_date_edit.date().toPyDate()
-        user_id = self.user_combo.currentData()
-        project_id = self.project_combo.currentData()
-        activity_type_id = self.activity_combo.currentData()
-
         time_entries = self.project_controller.get_time_entries_report(
-            start_date, end_date, user_id, project_id, activity_type_id
+            self.start_date.toPyDate(), self.end_date.toPyDate(), self.user_id, self.project_id, self.activity_type_id
         )
 
         if not time_entries:

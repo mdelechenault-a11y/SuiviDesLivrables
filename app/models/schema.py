@@ -99,7 +99,11 @@ class Client(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False)
-    contact_info = Column(String)
+    code = Column(String(3), nullable=True)
+    address = Column(Text, nullable=True)
+    phone = Column(String, nullable=True)
+    website = Column(String, nullable=True)
+    contact_info = Column(String, nullable=True)
     is_visible = Column(Boolean, default=True, nullable=False)
     projects = relationship("Project", back_populates="client")
 

@@ -279,21 +279,34 @@ def _create_projects_and_tasks(users, clients, activity_types, companies, projec
 
             project_budget_factor = random.uniform(0.8, 1.3)
             created_tasks_in_project = []
+            last_task_in_chain = None
+            chain_length_remaining = 0
             for j in range(tasks_per_project):
+                # Start a new chain if the previous one is finished or it's the first task
+                if chain_length_remaining <= 0:
+                    parente_task = None
+                    chain_length_remaining = random.randint(3, 5)
+                else:
+                    parente_task = last_task_in_chain
+
                 heures_prevues = round(random.uniform(4.0, 100.0), 2)
                 duree_jours = max(1, int(heures_prevues / 8) + random.randint(-1, 2))
-                parente_task = random.choice(created_tasks_in_project) if created_tasks_in_project and random.random() < 0.7 else None
                 initial_date_debut = fake.date_between(start_date=project.date_debut, end_date=project.date_debut + datetime.timedelta(days=30)) if not parente_task else None
+                
                 task = Task(
                     project=project, nom=fake.bs(), heures_prevues=heures_prevues,
                     duree_jours=duree_jours, position=j,
                     date_debut_calculee=initial_date_debut,
                     activity_type=random.choice(activity_types),
                     parente_id=parente_task.id if parente_task else None,
-                    lag_days=random.randint(0, 5) if parente_task else 0
+                    lag_days=random.randint(0, 3) if parente_task else 0
                 )
                 session.add(task)
+                session.flush() # Flush to get ID for the next task in the chain
+                
                 created_tasks_in_project.append(task)
+                last_task_in_chain = task
+                chain_length_remaining -= 1
             
             session.flush()
             root_tasks = [t for t in created_tasks_in_project if t.parente_id is None]

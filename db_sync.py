@@ -42,6 +42,21 @@ def synchronize_database():
                             connection.execute(text(statement))
                         print(f"'{col}' column added successfully.")
 
+            if 'clients' in all_tables:
+                clients_cols = [c['name'] for c in inspector.get_columns('clients')]
+                migrations_to_apply = {
+                    'code': 'ALTER TABLE clients ADD COLUMN code VARCHAR(3)',
+                    'address': 'ALTER TABLE clients ADD COLUMN address TEXT',
+                    'phone': 'ALTER TABLE clients ADD COLUMN phone VARCHAR',
+                    'website': 'ALTER TABLE clients ADD COLUMN website VARCHAR'
+                }
+                for col, statement in migrations_to_apply.items():
+                    if col not in clients_cols:
+                        print(f"Applying migration: Adding '{col}' to 'clients' table...")
+                        with connection.begin():
+                            connection.execute(text(statement))
+                        print(f"'{col}' column added successfully.")
+
             if 'users' in all_tables:
                 users_cols = [c['name'] for c in inspector.get_columns('users')]
                 if 'company_id' not in users_cols:

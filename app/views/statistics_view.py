@@ -1,6 +1,8 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QComboBox, QHBoxLayout, QLabel, QSizePolicy
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QComboBox, QHBoxLayout, QLabel, QSizePolicy, QPushButton
 from PyQt6.QtCore import QDate
 import numpy as np
+
+import qtawesome as qta
 
 # Matplotlib imports
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -19,38 +21,57 @@ class StatisticsView(QWidget):
         mplstyle.use('dark_background')
 
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(40, 10, 40, 10)
+        self.layout.setContentsMargins(20, 20, 20, 20)
+        self.layout.setSpacing(15)
 
-        # --- Top Bar for Filters ---
-        top_bar = QHBoxLayout()
-        top_bar.addWidget(QLabel("Année:"))
+        # --- Barre de Titre ---
+        self._setup_title_bar()
+
+        # --- Matplotlib Canvas ---
+        self.figure = Figure(tight_layout=True)
+        self.canvas = FigureCanvas(self.figure)
+        self.canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.canvas.setMinimumSize(0, 0) # Allow shrinking
+        self.layout.addWidget(self.canvas)
+
+        # Create subplots
+        self.ax1, self.ax2 = self.figure.subplots(1, 2)
+
+        # --- Connections ---
+        self.year_selector.currentTextChanged.connect(self.refresh_data)
+        self.refresh_button.clicked.connect(self.refresh_data)
+
+        # Initial data load
+        self.refresh_data()
+
+    def _setup_title_bar(self):
+        title_bar = QHBoxLayout()
+        
+        icon_label = QLabel()
+        icon_label.setPixmap(qta.icon('fa5s.chart-bar', color='white').pixmap(32, 32))
+        title = QLabel("Statistiques Financières")
+        font = title.font()
+        font.setPointSize(18)
+        font.setBold(True)
+        title.setFont(font)
+
+        title_bar.addWidget(icon_label)
+        title_bar.addSpacing(10)
+        title_bar.addWidget(title)
+        title_bar.addStretch()
+
+        title_bar.addWidget(QLabel("Année:"))
         self.year_selector = QComboBox()
         current_year = QDate.currentDate().year()
         for year in range(current_year - 5, current_year + 2):
             self.year_selector.addItem(str(year))
         self.year_selector.setCurrentText(str(current_year))
-        top_bar.addWidget(self.year_selector)
-        top_bar.addStretch()
-        self.layout.addLayout(top_bar)
+        title_bar.addWidget(self.year_selector)
 
-        # --- Matplotlib Canvas ---
-        self.figure = Figure(tight_layout=True)
-        self.canvas = FigureCanvas(self.figure)
-        # Permettre au graphique de rétrécir en dessous de sa taille préférée
-        self.canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.canvas.updateGeometry()
-        self.canvas.setMinimumSize(0, 0)
-        self.layout.addWidget(self.canvas)
-        self.layout.addStretch()
+        self.refresh_button = QPushButton(qta.icon('fa5s.sync-alt', color='white'), " Rafraîchir")
+        title_bar.addWidget(self.refresh_button)
 
-        # Create subplots
-        self.ax1, self.ax2 = self.figure.subplots(1, 2, sharex=False)
-
-        # --- Connections ---
-        self.year_selector.currentTextChanged.connect(self.refresh_data)
-
-        # Initial data load
-        self.refresh_data()
+        self.layout.addLayout(title_bar)
 
     def refresh_data(self):
         year_str = self.year_selector.currentText()

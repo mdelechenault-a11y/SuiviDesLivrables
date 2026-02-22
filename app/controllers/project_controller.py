@@ -32,7 +32,7 @@ class ProjectController:
         session = Session()
         try:
             clients = session.query(Client).filter(Client.is_visible == True).order_by(Client.name).all()
-            return [{"id": c.id, "name": c.name, "contact_info": c.contact_info} for c in clients]
+            return [{"id": c.id, "name": c.name, "code": c.code, "contact_info": c.contact_info} for c in clients]
         finally:
             session.close()
 
@@ -41,14 +41,22 @@ class ProjectController:
         try:
             client = session.query(Client).get(client_id)
             if not client: return None
-            return {"id": client.id, "name": client.name, "contact_info": client.contact_info}
+            return {
+                "id": client.id, "name": client.name, "code": client.code,
+                "address": client.address, "phone": client.phone, "website": client.website,
+                "contact_info": client.contact_info
+            }
         finally:
             session.close()
 
     def add_client(self, data):
         session = Session()
         try:
-            new_client = Client(name=data['name'], contact_info=data.get('contact_info'))
+            new_client = Client(
+                name=data['name'], code=data.get('code'), address=data.get('address'),
+                phone=data.get('phone'), website=data.get('website'),
+                contact_info=data.get('contact_info')
+            )
             session.add(new_client)
             session.commit()
             return True, "Client added successfully."
@@ -64,7 +72,11 @@ class ProjectController:
             client = session.query(Client).get(client_id)
             if not client: return False, "Client not found."
             client.name = data['name']
-            client.contact_info = data['contact_info']
+            client.code = data.get('code')
+            client.address = data.get('address')
+            client.phone = data.get('phone')
+            client.website = data.get('website')
+            client.contact_info = data.get('contact_info')
             session.commit()
             return True, "Client updated successfully."
         except IntegrityError:
@@ -235,11 +247,67 @@ class ProjectController:
         session = Session()
         try:
             tasks = session.query(Task).options(joinedload(Task.activity_type)).filter(Task.project_id == project_id).order_by(Task.position).all()
+            if not tasks:
+                return []
+
+            # --- CPM Calculation ---
+            task_map = {t.id: t for t in tasks}
+            
+            # 1. Forward Pass is assumed to be correct from _recalculate_task_and_dependents
+            # Find project end date (max Early Finish)
+            project_end_date = max((t.date_fin for t in tasks if t.date_fin), default=None)
+            if not project_end_date:
+                project = session.query(Project).get(project_id)
+                project_end_date = project.date_debut if project else datetime.date.today()
+
+            # 2. Backward Pass
+            # Initialize Latest Start (LS) and Latest Finish (LF)
+            cpm_data = {t.id: {'ls': None, 'lf': None} for t in tasks}
+            
+            # Identify children for each task
+            children_map = defaultdict(list)
+            for task in tasks:
+                if task.parente_id:
+                    children_map[task.parente_id].append(task)
+
+            # Start backward pass from tasks with no children
+            for task in reversed(tasks):
+                if not children_map.get(task.id):
+                    # This is a terminal task (or has no children in the current set)
+                    cpm_data[task.id]['lf'] = project_end_date
+                else:
+                    # LF is the minimum of the LS of its direct children, considering lag
+                    child_latest_starts = [
+                        (cpm_data[child.id]['ls'] - datetime.timedelta(days=child.lag_days or 0))
+                        for child in children_map[task.id] if cpm_data[child.id]['ls'] is not None
+                    ]
+                    if child_latest_starts:
+                        min_ls = min(child_latest_starts)
+                        cpm_data[task.id]['lf'] = min_ls - datetime.timedelta(days=1)
+                    else:
+                        # If no processed children are found, treat as a terminal task for this pass.
+                        cpm_data[task.id]['lf'] = project_end_date
+                
+                duration = task.duree_jours or 1
+                cpm_data[task.id]['ls'] = cpm_data[task.id]['lf'] - datetime.timedelta(days=duration - 1)
+
+            # 3. Calculate Float (Total Slack) and determine critical path
+            for task in tasks:
+                if task.date_debut_calculee and cpm_data[task.id].get('ls'):
+                    early_start = task.date_debut_calculee
+                    latest_start = cpm_data[task.id]['ls']
+                    float_days = (latest_start - early_start).days
+                    cpm_data[task.id]['is_critical'] = float_days <= 0
+                else:
+                    cpm_data[task.id]['is_critical'] = False
+
+            # 4. Format output
             return [{
                 "id": t.id, "nom": t.nom, "activity_type": t.activity_type.nom,
                 "date_debut_calculee": t.date_debut_calculee, "heures_prevues": t.heures_prevues,
                 "duree_jours": t.duree_jours, "date_fin": t.date_fin, "parente_id": t.parente_id, "lag_days": t.lag_days,
-                "position": t.position
+                "position": t.position,
+                "is_critical": cpm_data[t.id].get('is_critical', False)
             } for t in tasks]
         finally:
             session.close()

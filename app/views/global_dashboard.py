@@ -15,8 +15,14 @@ import qtawesome as qta
 class DashboardFilterDialog(QDialog):
     def __init__(self, parent, current_filters, companies, pms):
         super().__init__(parent)
-        self.setWindowTitle("Filtres du Tableau de Bord")
+        self.setWindowTitle("Filtres Avancés")
+        self.setWindowIcon(qta.icon('fa5s.filter', color='white'))
+        self.setMinimumWidth(400)
+
         layout = QFormLayout(self)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
         # Year
         self.year_selector = QComboBox()
@@ -26,27 +32,32 @@ class DashboardFilterDialog(QDialog):
             self.year_selector.addItem(str(year), userData=year)
         if current_filters.get('year'):
             self.year_selector.setCurrentText(str(current_filters['year']))
-        layout.addRow("Année active:", self.year_selector)
+        layout.addRow("Filtrer par Année:", self.year_selector)
 
         # Company
         self.company_selector = QComboBox()
         self.company_selector.addItem("Toutes les sociétés", userData=None)
         for company in companies:
             self.company_selector.addItem(company['name'], userData=company['id'])
-        self.company_selector.setCurrentIndex(self.company_selector.findData(current_filters.get('company_id')))
-        layout.addRow("Société:", self.company_selector)
+        if current_filters.get('company_id'):
+            # Find the index for the company_id and set it
+            index = self.company_selector.findData(current_filters.get('company_id'))
+            if index != -1:
+                self.company_selector.setCurrentIndex(index)
+        layout.addRow("Filtrer par Société:", self.company_selector)
 
         # Project Manager
         self.pm_selector = QComboBox()
         self.pm_selector.addItem("Tous les chefs de projet", userData=None)
-        self.pm_selector.addItems(pms)
+        for pm in pms:
+             self.pm_selector.addItem(pm) # Assuming pms is a list of strings
         self.pm_selector.setCurrentText(current_filters.get('pm_name') or "Tous les chefs de projet")
-        layout.addRow("Chef de Projet:", self.pm_selector)
+        layout.addRow("Filtrer par Chef de Projet:", self.pm_selector)
 
         # Status
         self.ongoing_only_cb = QCheckBox("Afficher uniquement les projets non-terminés")
         self.ongoing_only_cb.setChecked(current_filters.get('ongoing_only', True))
-        layout.addRow(self.ongoing_only_cb)
+        layout.addRow("", self.ongoing_only_cb)
 
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self.buttons.accepted.connect(self.accept)
@@ -106,19 +117,11 @@ class GlobalDashboardView(QWidget):
 
         # --- Layout Principal ---
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(2)
+        self.layout.setContentsMargins(10, 10, 10, 10)
+        self.layout.setSpacing(10)
         
-        # --- Titre ---
-        title = QLabel("Tableau de Bord Matriciel")
-        font = title.font()
-        font.setPointSize(16)
-        font.setBold(True)
-        title.setFont(font)
-        self.layout.addWidget(title)
-
-        # --- Zone de Filtres ---
-        self._setup_filters()
+        # --- Titre et Actions ---
+        self._setup_title_bar()
 
         # --- Zone des Tableaux (Gauche: Figé, Droite: Scrollable) ---
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -133,8 +136,7 @@ class GlobalDashboardView(QWidget):
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
 
-        # Positionnement initial du splitter pour que le tableau de gauche soit lisible
-        # Largeurs fixes (Code: 110, CP: 150) + largeur raisonnable pour le nom (300)
+        # Positionnement initial du splitter
         self.splitter.setSizes([540, 640])
 
         self.layout.addWidget(self.splitter)
@@ -145,36 +147,52 @@ class GlobalDashboardView(QWidget):
         # --- Chargement initial ---
         self.rebuild_ui()
 
-    def _setup_filters(self):
-        filter_container = QWidget()
-        filter_container.setMaximumHeight(50)
+    def _setup_title_bar(self):
+        """Crée la barre de titre avec l'icône, le titre et les boutons d'action."""
+        title_bar_container = QWidget()
+        title_bar_layout = QHBoxLayout(title_bar_container)
+        title_bar_layout.setContentsMargins(0, 0, 0, 0)
+        title_bar_layout.setSpacing(10)
 
-        filter_layout = QHBoxLayout(filter_container)
-        filter_layout.setContentsMargins(5, 5, 5, 5)
-        filter_layout.setSpacing(10)
+        # Icône et Titre
+        icon_label = QLabel()
+        icon_label.setPixmap(qta.icon('fa5s.chart-pie', color='white').pixmap(32, 32))
+        title = QLabel("Vue d'Ensemble Globale")
+        font = title.font()
+        font.setPointSize(18)
+        font.setBold(True)
+        title.setFont(font)
+        
+        title_bar_layout.addWidget(icon_label)
+        title_bar_layout.addWidget(title)
+        title_bar_layout.addStretch(1)
 
         # Filtre de recherche
-        filter_layout.addWidget(QLabel("Rechercher:"))
+        title_bar_layout.addWidget(QLabel("Rechercher:"))
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Code, Nom, CP...")
+        self.search_input.setMaximumWidth(200)
         self.search_input.textChanged.connect(self.apply_filters_and_repopulate)
-        filter_layout.addWidget(self.search_input)
+        title_bar_layout.addWidget(self.search_input)
 
-        filter_layout.addSpacing(20)
+        title_bar_layout.addSpacing(10)
 
-        self.show_all_activities_cb = QCheckBox("Afficher toutes les activités")
+        # Checkbox pour les activités
+        self.show_all_activities_cb = QCheckBox("Toutes les activités")
         self.show_all_activities_cb.stateChanged.connect(self.rebuild_ui)
-        filter_layout.addWidget(self.show_all_activities_cb)
+        title_bar_layout.addWidget(self.show_all_activities_cb)
 
-        filter_layout.addSpacing(20)
-
-        # Bouton de filtres
-        self.filter_button = QPushButton(qta.icon('fa5s.filter'), " Filtres")
+        # Bouton de filtres avancés
+        self.filter_button = QPushButton(qta.icon('fa5s.filter', color='white'), " Filtres")
         self.filter_button.clicked.connect(self._open_filter_dialog)
-        filter_layout.addWidget(self.filter_button)
+        title_bar_layout.addWidget(self.filter_button)
 
-        filter_layout.addStretch()
-        self.layout.addWidget(filter_container)
+        # Bouton de rafraîchissement
+        self.refresh_button = QPushButton(qta.icon('fa5s.sync-alt', color='white'), " Rafraîchir")
+        self.refresh_button.clicked.connect(self.rebuild_ui)
+        title_bar_layout.addWidget(self.refresh_button)
+
+        self.layout.addWidget(title_bar_container)
 
     def _setup_tables(self):
         """Configuration initiale des deux tableaux."""
@@ -184,10 +202,11 @@ class GlobalDashboardView(QWidget):
         self.table_fixed.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.table_fixed.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table_fixed.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table_fixed.setStyleSheet("QTableWidget { border: none; border-right: 1px solid #B0B0B0; }")
+        self.table_fixed.setStyleSheet("QTableWidget { border: none; border-right: 1px solid #555; }")
         self.table_fixed.setMouseTracking(True)
         self.table_fixed.setMinimumWidth(0)
         self.table_fixed.setFrameShape(QFrame.Shape.NoFrame)
+        self.table_fixed.verticalHeader().setVisible(False)
 
         # Table Scrollable (Droite)
         self.table_scrollable.setEditTriggers(QTableWidget.EditTrigger.DoubleClicked | QTableWidget.EditTrigger.SelectedClicked | QTableWidget.EditTrigger.EditKeyPressed)
@@ -198,6 +217,11 @@ class GlobalDashboardView(QWidget):
         self.table_scrollable.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table_scrollable.verticalHeader().setVisible(False)
         self.table_scrollable.setFrameShape(QFrame.Shape.NoFrame)
+        self.table_scrollable.setAlternatingRowColors(True)
+
+        # Augmenter la hauteur des lignes pour une meilleure lisibilité
+        self.table_fixed.verticalHeader().setDefaultSectionSize(32)
+        self.table_scrollable.verticalHeader().setDefaultSectionSize(32)
 
     def _connect_sync_signals(self):
         """Connecte les signaux pour la synchronisation du scroll et de la sélection."""

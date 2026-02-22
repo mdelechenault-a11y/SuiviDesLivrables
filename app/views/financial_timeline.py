@@ -99,7 +99,7 @@ class FinancialTimeline(QWidget):
         self.month_width = 100
         self.oval_height = 24
         self.oval_width = 0 # Sera calculé dans paintEvent
-        self.y_offset = 10
+        self.y_offset = 0
 
         # Colors
         self.colors = {

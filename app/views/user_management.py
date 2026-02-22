@@ -16,10 +16,16 @@ class UserEditDialog(QDialog):
         self.user = user
         self.is_edit_mode = user is not None
 
-        self.setWindowTitle("Modifier l'Utilisateur" if self.is_edit_mode else "Ajouter un Utilisateur")
-        self.setMinimumWidth(350)
+        title = "Modifier l'Utilisateur" if self.is_edit_mode else "Ajouter un Utilisateur"
+        icon = 'fa5s.user-edit' if self.is_edit_mode else 'fa5s.user-plus'
+        self.setWindowTitle(title)
+        self.setWindowIcon(qta.icon(icon, color='white'))
+        self.setMinimumWidth(400)
 
         layout = QFormLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         
         self.username_input = QLineEdit(user.username if user else "")
         self.prenom_input = QLineEdit(user.prenom if user else "")
@@ -89,7 +95,38 @@ class UserManagementWindow(QWidget):
         self.controller = UserController()
         
         self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(20, 20, 20, 20)
+        self.main_layout.setSpacing(15)
 
+        # --- Barre de Titre ---
+        title_bar = QHBoxLayout()
+        icon_label = QLabel()
+        icon_label.setPixmap(qta.icon('fa5s.user-cog', color='white').pixmap(32, 32))
+        title = QLabel("Gestion des Utilisateurs")
+        font = title.font()
+        font.setPointSize(18)
+        font.setBold(True)
+        title.setFont(font)
+
+        title_bar.addWidget(icon_label)
+        title_bar.addSpacing(10)
+        title_bar.addWidget(title)
+        title_bar.addStretch()
+        
+        self.add_button = QPushButton(qta.icon('fa5s.plus', color='white'), " Ajouter")
+        self.edit_button = QPushButton(qta.icon('fa5s.edit', color='white'), " Modifier")
+        self.delete_button = QPushButton(qta.icon('fa5s.trash-alt', color='white'), " Supprimer")
+        self.refresh_button = QPushButton(qta.icon('fa5s.sync-alt', color='white'), " Rafraîchir")
+
+        title_bar.addWidget(self.add_button)
+        title_bar.addWidget(self.edit_button)
+        title_bar.addWidget(self.delete_button)
+        title_bar.addSpacing(20)
+        title_bar.addWidget(self.refresh_button)
+
+        self.main_layout.addLayout(title_bar)
+
+        # --- Tableau des Utilisateurs ---
         self.user_table = QTableWidget()
         self.user_table.setColumnCount(5)
         self.user_table.setHorizontalHeaderLabels(["ID", "Nom", "Email", "Rôle", "Société"])
@@ -98,23 +135,16 @@ class UserManagementWindow(QWidget):
         self.user_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.user_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.user_table.hideColumn(0)
-
-        buttons_layout = QHBoxLayout()
-        self.add_button = QPushButton(qta.icon('fa5s.plus'), "Ajouter")
-        self.edit_button = QPushButton(qta.icon('fa5s.edit'), "Modifier")
-        self.delete_button = QPushButton(qta.icon('fa5s.trash-alt'), "Supprimer")
+        self.user_table.setAlternatingRowColors(True)
+        self.user_table.verticalHeader().setVisible(False)
         
-        buttons_layout.addStretch()
-        buttons_layout.addWidget(self.add_button)
-        buttons_layout.addWidget(self.edit_button)
-        buttons_layout.addWidget(self.delete_button)
-
         self.main_layout.addWidget(self.user_table)
-        self.main_layout.addLayout(buttons_layout)
 
+        # --- Connexions ---
         self.add_button.clicked.connect(self.add_user)
         self.edit_button.clicked.connect(self.edit_user)
         self.delete_button.clicked.connect(self.delete_user)
+        self.refresh_button.clicked.connect(self.refresh_user_table)
 
         self.refresh_user_table()
 

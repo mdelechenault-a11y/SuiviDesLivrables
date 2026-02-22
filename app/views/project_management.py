@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QVBoxLayout, QFormLayout, QMessageBox, QDateEdit, 
     QGroupBox, QHBoxLayout, QTableWidget, QHeaderView, QTableWidgetItem, QSpinBox,
     QAbstractItemView, QScrollArea, QDialog, QDialogButtonBox, QDoubleSpinBox,
-    QCheckBox, QSplitter
+    QCheckBox, QSplitter, QSizePolicy
 )
 import datetime
 from PyQt6.QtCore import QDate, Qt, pyqtSignal
@@ -13,7 +13,6 @@ import qtawesome as qta
 
 from app.controllers.project_controller import ProjectController
 from app.views.gantt_chart import GanttChart
-from app.views.add_client_dialog import AddClientDialog
 from app.views.widgets.loading_dialog import LoadingDialog
 from app.models.schema import ProjectStatus
 
@@ -66,23 +65,39 @@ class TaskTableWidget(QTableWidget):
             event.ignore()
 
 class UserAssignmentDialog(QDialog):
-    def __init__(self, controller, parent=None, assignments=None):
+    def __init__(self, controller, parent=None, assignments=None, task_name=None):
         super().__init__(parent)
-        self.setWindowTitle("Affecter des Utilisateurs et leurs Heures")
+        title = f"Affecter des Utilisateurs"
+        if task_name:
+            title += f" pour : {task_name}"
+        self.setWindowTitle(title)
+        self.setWindowIcon(qta.icon('fa5s.users', color='white'))
+        self.setMinimumSize(500, 400)
+
         self.controller = controller
         self.assignments = assignments or {}
+        
         self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(15, 15, 15, 15)
+        self.layout.setSpacing(10)
+
         self.layout.addWidget(QLabel("Cochez les utilisateurs à affecter et définissez les heures allouées :"))
+        
         self.table = QTableWidget()
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(["Utilisateur", "Affecté", "Heures Allouées"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.table.verticalHeader().setVisible(False)
+        self.table.setAlternatingRowColors(True)
         self.layout.addWidget(self.table)
+        
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         self.layout.addWidget(self.buttons)
+        
         self.populate_users()
 
     def populate_users(self):
@@ -122,11 +137,16 @@ class UserAssignmentDialog(QDialog):
 class ProjectInfoDialog(QDialog):
     def __init__(self, project_details, controller, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Modifier les Informations du Projet")
+        self.setWindowTitle("Informations du Projet")
+        self.setWindowIcon(qta.icon('fa5s.pencil-alt', color='white'))
+        self.setMinimumWidth(450)
         self.controller = controller
         self.details = project_details
 
         self.layout = QFormLayout(self)
+        self.layout.setContentsMargins(20, 20, 20, 20)
+        self.layout.setSpacing(15)
+        self.layout.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
         
         self.code_input = QLineEdit(self.details.get('code', ''))
         self.code_input.setInputMask("99-999-AAA;#")
@@ -134,6 +154,7 @@ class ProjectInfoDialog(QDialog):
         self.budget_material_input = QDoubleSpinBox()
         self.budget_material_input.setRange(0.0, 1_000_000.0)
         self.budget_material_input.setSuffix(" €")
+        self.budget_material_input.setGroupSeparatorShown(True)
         self.budget_material_input.setValue(self.details.get('budget_material_planned', 0.0))
         self.pm_combo = QComboBox()
         self.client_combo = QComboBox()
@@ -224,131 +245,158 @@ class ProjectManagementWidget(QWidget):
         self.project_tasks_data = []
 
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(5, 5, 5, 5)
+        self.main_layout.setContentsMargins(10, 10, 10, 10)
+        self.main_layout.setSpacing(10)
 
-        self.top_bar = QHBoxLayout()
-        self.project_title_label = QLabel("Aucun projet chargé")
-        font = self.project_title_label.font()
-        font.setPointSize(12)
-        font.setBold(True)
-        self.project_title_label.setFont(font)
-        
-        self.edit_project_button = QPushButton(qta.icon('fa5s.pencil-alt'), " Modifier les infos du projet")
-        self.export_csv_button = QPushButton(qta.icon('fa5s.file-csv'), " Export CSV")
-        
-        self.top_bar.addWidget(self.project_title_label)
-        self.top_bar.addStretch()
-        self.top_bar.addWidget(self.edit_project_button)
-        self.top_bar.addWidget(self.export_csv_button)
-        self.main_layout.addLayout(self.top_bar)
+        # --- Barre de Titre ---
+        self._setup_title_bar()
 
-        self.content_layout = QHBoxLayout()
+        # --- Contenu Principal ---
+        self.content_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.content_splitter.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        
         self.left_panel = QWidget()
         self.left_panel_layout = QVBoxLayout(self.left_panel)
         self.left_panel_layout.setSpacing(5)
         self.left_panel_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.gantt_scroll_area = QScrollArea()
 
+        self.content_splitter.addWidget(self.left_panel)
+        self.content_splitter.addWidget(self.gantt_scroll_area)
+        self.content_splitter.setStretchFactor(0, 0) # Le panneau de gauche ne s'étire pas
+        self.content_splitter.setStretchFactor(1, 1) # Le Gantt prend l'espace restant
+        self.content_splitter.setSizes([700, 500]) # Tailles initiales
+        
+        self.main_layout.addWidget(self.content_splitter)
+
+        self._setup_left_panel()
+        self._setup_gantt_view()
+        
+        # --- Connexions et Initialisation ---
+        self._connect_signals()
+        self.set_project_loaded(False)
+        self.populate_activity_types()
+
+    def _setup_title_bar(self):
+        title_bar = QWidget()
+        title_bar_layout = QHBoxLayout(title_bar)
+        title_bar_layout.setContentsMargins(0, 0, 0, 0)
+
+        icon_label = QLabel()
+        icon_label.setPixmap(qta.icon('fa5s.project-diagram', color='white').pixmap(32, 32))
+        
+        self.project_title_label = QLabel("Aucun projet chargé")
+        font = self.project_title_label.font()
+        font.setPointSize(18)
+        font.setBold(True)
+        self.project_title_label.setFont(font)
+        
+        title_bar_layout.addWidget(icon_label)
+        title_bar_layout.addSpacing(10)
+        title_bar_layout.addWidget(self.project_title_label)
+        title_bar_layout.addStretch()
+
+        self.edit_project_button = QPushButton(qta.icon('fa5s.pencil-alt', color='white'), " Modifier les infos")
+        self.export_csv_button = QPushButton(qta.icon('fa5s.file-csv', color='white'), " Export CSV")
+        
+        title_bar_layout.addWidget(self.edit_project_button)
+        title_bar_layout.addWidget(self.export_csv_button)
+        self.main_layout.addWidget(title_bar)
+    
+    def _setup_left_panel(self):
+        """Configure le panneau de gauche avec le formulaire et les tables."""
+        # Groupe pour la gestion des tâches
         self.task_form_group = QGroupBox("Ajouter / Modifier une Tâche")
-        task_form_layout = QHBoxLayout() # Changed to Horizontal for 2 columns
+        task_form_layout = QHBoxLayout()
         self.task_form_group.setLayout(task_form_layout)
 
-        # --- Left Column (Inputs) ---
-        left_inputs_layout = QVBoxLayout()
-        
-        # Ligne 1: Nom de la Tâche
-        label_width = 80
-        name_layout = QHBoxLayout()
-        nom_label = QLabel("Nom :")
-        nom_label.setFixedWidth(label_width)
-        name_layout.addWidget(nom_label)
+        # Colonne gauche du formulaire (champs de saisie)
+        left_inputs_layout = QFormLayout()
+        left_inputs_layout.setSpacing(10)
         self.task_nom_input = QLineEdit()
-        self.task_nom_input.setPlaceholderText("Nom de la tâche")
-        name_layout.addWidget(self.task_nom_input)
-        left_inputs_layout.addLayout(name_layout)
-
-        # Ligne 2: Métriques Temporelles (3 éléments côte à côte)
+        self.task_nom_input.setPlaceholderText("Nom de la nouvelle tâche")
+        
+        # Ligne pour les métriques
         metrics_layout = QHBoxLayout()
-        duree_label = QLabel("Durée :")
-        duree_label.setFixedWidth(label_width)
-        metrics_layout.addWidget(duree_label)
+        metrics_layout.setContentsMargins(0,0,0,0)
         self.task_duree_jours_input = QSpinBox()
         self.task_duree_jours_input.setRange(1, 999)
-        self.task_duree_jours_input.setFixedWidth(60)
-        metrics_layout.addWidget(self.task_duree_jours_input)
-        metrics_layout.addSpacing(15)
-        metrics_layout.addWidget(QLabel("Heures :"))
+        self.task_duree_jours_input.setSuffix(" jours")
         self.task_heures_input = QSpinBox()
         self.task_heures_input.setRange(1, 9999)
-        self.task_heures_input.setFixedWidth(70)
-        metrics_layout.addWidget(self.task_heures_input)
-        metrics_layout.addSpacing(15)
-        metrics_layout.addWidget(QLabel("Début :"))
+        self.task_heures_input.setSuffix(" h")
         self.task_date_debut_input = QDateEdit(calendarPopup=True)
         self.task_date_debut_input.setDate(QDate.currentDate())
+        metrics_layout.addWidget(self.task_duree_jours_input)
+        metrics_layout.addSpacing(10)
+        metrics_layout.addWidget(self.task_heures_input)
+        metrics_layout.addSpacing(10)
+        metrics_layout.addWidget(QLabel("Début:"))
         metrics_layout.addWidget(self.task_date_debut_input)
         metrics_layout.addStretch()
-        left_inputs_layout.addLayout(metrics_layout)
 
-        # Ligne 3: Tâche Parente
-        parent_layout = QHBoxLayout()
-        parent_label = QLabel("Parent :")
-        parent_label.setFixedWidth(label_width)
-        parent_layout.addWidget(parent_label)
         self.task_parente_combo = QComboBox()
-        parent_layout.addWidget(self.task_parente_combo)
-        left_inputs_layout.addLayout(parent_layout)
-
-        # Ligne 4: Type d'Activité
-        activity_layout = QHBoxLayout()
-        activite_label = QLabel("Activité :")
-        activite_label.setFixedWidth(label_width)
-        activity_layout.addWidget(activite_label)
         self.task_type_combo = QComboBox()
-        activity_layout.addWidget(self.task_type_combo)
-        left_inputs_layout.addLayout(activity_layout)
         
-        left_inputs_layout.addStretch()
-
-        # --- Right Column (Actions) ---
+        left_inputs_layout.addRow("Nom:", self.task_nom_input)
+        left_inputs_layout.addRow("Métriques:", metrics_layout)
+        left_inputs_layout.addRow("Parent:", self.task_parente_combo)
+        left_inputs_layout.addRow("Activité:", self.task_type_combo)
+        
+        # Colonne droite du formulaire (boutons d'action)
         right_actions_layout = QVBoxLayout()
+        self.assign_users_button = QPushButton(qta.icon('fa5s.users', color='white'), " Affecter / Gérer")
+        self.add_task_button = QPushButton(qta.icon('fa5s.plus', color='white'), " Ajouter Tâche")
+        self.modify_task_button = QPushButton(qta.icon('fa5s.check', color='white'), " Modifier Tâche")
+        self.clear_selection_button = QPushButton(qta.icon('fa5s.times', color='white'), " Annuler")
 
-        self.assign_users_button = QPushButton("Affecter / Gérer les Heures")
-        self.add_task_button = QPushButton("Ajouter Tâche")
-        self.modify_task_button = QPushButton("Modifier Tâche")
-        self.clear_selection_button = QPushButton("Désélectionner")
-        
+        self.critical_path_checkbox = QCheckBox("Afficher le chemin critique")
+
         right_actions_layout.addWidget(self.assign_users_button)
         right_actions_layout.addWidget(self.add_task_button)
         right_actions_layout.addWidget(self.modify_task_button)
         right_actions_layout.addWidget(self.clear_selection_button)
+        right_actions_layout.addSpacing(10)
+        right_actions_layout.addWidget(self.critical_path_checkbox)
         right_actions_layout.addStretch()
-        
         self.modify_task_button.hide()
 
         task_form_layout.addLayout(left_inputs_layout, stretch=2)
         task_form_layout.addLayout(right_actions_layout, stretch=1)
-
+        
+        # Conteneur pour la section des utilisateurs affectés
+        users_container = QWidget()
+        users_layout = QVBoxLayout(users_container)
+        users_layout.setContentsMargins(0,0,0,0)
         self.assigned_users_label = QLabel("Utilisateurs Affectés à la Tâche Sélectionnée:")
-        self.assigned_users_label.setContentsMargins(0, 0, 0, 2) # Reduce bottom margin
-
         self.assigned_users_table = QTableWidget()
-        self.assigned_users_table.setColumnCount(4)
-        self.assigned_users_table.setHorizontalHeaderLabels(["ID", "Utilisateur", "Heures Allouées", "Heures Réelles"])
-        self.assigned_users_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.assigned_users_table.hideColumn(0)
-        self.assigned_users_table.setShowGrid(False)
-        self.assigned_users_table.verticalHeader().setVisible(False)
-        self.assigned_users_table.setStyleSheet("""
-            QTableWidget {
-                border: 1px solid #4a5060;
-                border-radius: 4px;
-            }
-            QHeaderView::section {
-                background-color: transparent; border: none; padding: 4px;
-            }""")
-        self.assigned_users_table.setMinimumHeight(150)
+        users_layout.addWidget(self.assigned_users_label)
+        users_layout.addWidget(self.assigned_users_table)
+        self._setup_assigned_users_table()
 
+        # Splitter vertical pour séparer la table des tâches et la table des utilisateurs
+        bottom_splitter = QSplitter(Qt.Orientation.Vertical)
         self.task_table = TaskTableWidget()
+        bottom_splitter.addWidget(self.task_table)
+        bottom_splitter.addWidget(users_container)
+        self._setup_task_table()
+
+        # Splitter vertical principal du panneau de gauche
+        left_panel_splitter = QSplitter(Qt.Orientation.Vertical)
+        left_panel_splitter.addWidget(self.task_form_group)
+        left_panel_splitter.addWidget(bottom_splitter)
+        left_panel_splitter.setSizes([220, 780]) # Donner plus de place aux tables
+        self.left_panel_layout.addWidget(left_panel_splitter)
+
+    def _setup_gantt_view(self):
+        self.gantt_chart = GanttChart()
+        self.gantt_scroll_area.setWidget(self.gantt_chart)
+        self.gantt_scroll_area.setWidgetResizable(True)
+        self.left_panel.setMinimumWidth(0)
+        self.gantt_scroll_area.setMinimumWidth(0)
+
+    def _setup_task_table(self):
         self.task_table.setColumnCount(7)
         self.task_table.setHorizontalHeaderLabels(["ID", "Nom", "Début", "Fin", "Durée (j)", "Heures Prév.", "Parente ID"])
         header = self.task_table.horizontalHeader()
@@ -356,47 +404,25 @@ class ProjectManagementWidget(QWidget):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         self.task_table.setColumnWidth(1, 350)
         self.task_table.hideColumn(0)
+        self.task_table.hideColumn(6) # Hide parent ID, it's for internal use
         self.task_table.viewport().installEventFilter(self)
+        self.task_table.setAlternatingRowColors(True)
+        self.task_table.verticalHeader().setVisible(False)
+    
+    def _setup_assigned_users_table(self):
+        self.assigned_users_table.setColumnCount(4)
+        self.assigned_users_table.setHorizontalHeaderLabels(["ID", "Utilisateur", "Heures Allouées", "Heures Réelles"])
+        self.assigned_users_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.assigned_users_table.hideColumn(0)
+        self.assigned_users_table.setShowGrid(False)
+        self.assigned_users_table.verticalHeader().setVisible(False)
+        self.assigned_users_table.setStyleSheet("""
+            QTableWidget { border: 1px solid #4a5060; border-radius: 4px; }
+            QHeaderView::section { background-color: transparent; border: none; padding: 4px; }
+        """)
+        self.assigned_users_table.setMinimumHeight(150)
 
-        # --- NEW Splitter Implementation for Left Panel ---
-        # Container for Users (Bottom)
-        users_container = QWidget()
-        users_layout = QVBoxLayout(users_container)
-        users_layout.setContentsMargins(0,0,0,0)
-        users_layout.addWidget(self.assigned_users_label)
-        users_layout.addWidget(self.assigned_users_table)
-        
-        # Bottom splitter for tasks and assigned users
-        bottom_splitter = QSplitter(Qt.Orientation.Vertical)
-        bottom_splitter.addWidget(self.task_table)
-        bottom_splitter.addWidget(users_container)
-
-        # Main splitter for the left panel
-        left_panel_splitter = QSplitter(Qt.Orientation.Vertical)
-        left_panel_splitter.addWidget(self.task_form_group)
-        left_panel_splitter.addWidget(bottom_splitter)
-        left_panel_splitter.setSizes([250, 750]) # Give more space to tables (approx 30/70)
-        self.left_panel_layout.addWidget(left_panel_splitter)
-
-        self.gantt_scroll_area = QScrollArea()
-        self.gantt_chart = GanttChart()
-        self.gantt_scroll_area.setWidget(self.gantt_chart)
-        self.gantt_scroll_area.setWidgetResizable(True)
-        self.left_panel.setMinimumWidth(0)
-        self.gantt_scroll_area.setMinimumWidth(0)
-        
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(self.left_panel)
-        splitter.addWidget(self.gantt_scroll_area)
-        splitter.setStretchFactor(0, 0)
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([300, 700])
-        
-        self.content_layout.addWidget(splitter)
-        self.main_layout.addLayout(self.content_layout)
-        
-        self.set_project_loaded(False)
-
+    def _connect_signals(self):
         self.gantt_chart.task_clicked.connect(self.on_gantt_task_clicked)
         self.gantt_chart.task_duration_changed.connect(self.on_task_duration_changed)
         self.gantt_chart.task_lag_changed.connect(self.on_task_lag_changed)
@@ -408,8 +434,7 @@ class ProjectManagementWidget(QWidget):
         self.task_table.itemSelectionChanged.connect(self.on_task_selected)
         self.export_csv_button.clicked.connect(self.export_project_to_csv)
         self.task_table.rows_reordered.connect(self.on_tasks_reordered)
-
-        self.populate_activity_types()
+        self.critical_path_checkbox.stateChanged.connect(self.on_critical_path_toggled)
     
     def eventFilter(self, source, event):
         if (event.type() == event.Type.MouseButtonPress and
@@ -522,6 +547,11 @@ class ProjectManagementWidget(QWidget):
                 # S'assurer que la ligne sélectionnée est visible
                 self.task_table.scrollToItem(item, QAbstractItemView.ScrollHint.PositionAtCenter)
                 return
+
+    def on_critical_path_toggled(self, state):
+        """Notifies the Gantt chart to show or hide the critical path."""
+        show = state == Qt.CheckState.Checked.value
+        self.gantt_chart.set_show_critical_path(show)
 
     def _get_task_data_from_form(self):
         task_data = {
@@ -672,8 +702,9 @@ class ProjectManagementWidget(QWidget):
             QMessageBox.warning(self, "Aucune Tâche Sélectionnée", "Veuillez d'abord sélectionner une tâche.")
             return
         
+        task_name = self.task_nom_input.text()
         allocated_hours = {uid: data['temps_alloue'] for uid, data in self.task_assignments.items()}
-        dialog = UserAssignmentDialog(self.controller, self, allocated_hours)
+        dialog = UserAssignmentDialog(self.controller, self, allocated_hours, task_name=task_name)
         
         if dialog.exec():
             new_allocations = dialog.get_assignments()

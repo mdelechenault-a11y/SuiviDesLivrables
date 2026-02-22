@@ -1,7 +1,7 @@
 import datetime
 from collections import defaultdict
 from sqlalchemy.orm import sessionmaker, joinedload
-from sqlalchemy import func
+from sqlalchemy import func, select
 from app.models.base import engine
 from app.models.schema import Project, Livrable, ProjectStatus, LivrableComment, User, Company
 
@@ -9,11 +9,26 @@ Session = sessionmaker(bind=engine)
 
 class DeliverableController:
     def get_ongoing_projects(self, year, month=None, company_id=None):
-        """Récupère les projets 'En cours' avec le nom du chef de projet, optionnellement filtrés par mois d'activité des livrables."""
+        """Récupère les projets 'En cours' avec le nom du chef de projet et le montant total des livrables."""
         session = Session()
         try:
-            query = session.query(Project).options(joinedload(Project.chef_de_projet)).filter(Project.statut == ProjectStatus.EN_COURS)
+            # Subquery to calculate the total amount for each project
+            total_amount_subquery = (
+                select(
+                    Livrable.project_id,
+                    func.sum(Livrable.montant).label("total_amount")
+                )
+                .group_by(Livrable.project_id)
+                .subquery()
+            )
 
+            query = session.query(
+                Project,
+                func.coalesce(total_amount_subquery.c.total_amount, 0).label("total_amount")
+            ).outerjoin(
+                total_amount_subquery, Project.id == total_amount_subquery.c.project_id
+            ).options(joinedload(Project.chef_de_projet)).filter(Project.statut == ProjectStatus.EN_COURS)
+            
             if company_id:
                 query = query.filter(Project.company_id == company_id)
 
@@ -23,26 +38,42 @@ class DeliverableController:
                     func.extract('month', Livrable.date_prevue) == month
                 ).distinct()
 
-            projects = query.order_by(Project.nom).all()
+            projects_with_totals = query.order_by(Project.nom).all()
             result = []
-            for p in projects:
+            for p, total_amount in projects_with_totals:
                 pm_name = f"{p.chef_de_projet.prenom} {p.chef_de_projet.nom}" if p.chef_de_projet else "N/A"
                 result.append({
                     "id": p.id,
                     "code": p.code,
                     "name": p.nom,
-                    "project_manager": pm_name
+                    "project_manager": pm_name,
+                    "total_amount": total_amount or 0.0
                 })
             return result
         finally:
             session.close()
 
     def get_all_projects_summary(self, year, month=None, company_id=None):
-        """Récupère tous les projets (quel que soit leur statut) avec le nom du chef de projet, optionnellement filtrés par mois d'activité des livrables."""
+        """Récupère tous les projets avec le nom du chef de projet et le montant total des livrables."""
         session = Session()
         try:
-            query = session.query(Project).options(joinedload(Project.chef_de_projet))
+            # Subquery to calculate the total amount for each project
+            total_amount_subquery = (
+                select(
+                    Livrable.project_id,
+                    func.sum(Livrable.montant).label("total_amount")
+                )
+                .group_by(Livrable.project_id)
+                .subquery()
+            )
 
+            query = session.query(
+                Project,
+                func.coalesce(total_amount_subquery.c.total_amount, 0).label("total_amount")
+            ).outerjoin(
+                total_amount_subquery, Project.id == total_amount_subquery.c.project_id
+            ).options(joinedload(Project.chef_de_projet))
+            
             if company_id:
                 query = query.filter(Project.company_id == company_id)
 
@@ -52,15 +83,16 @@ class DeliverableController:
                     func.extract('month', Livrable.date_prevue) == month
                 ).distinct()
 
-            projects = query.order_by(Project.nom).all()
+            projects_with_totals = query.order_by(Project.nom).all()
             result = []
-            for p in projects:
+            for p, total_amount in projects_with_totals:
                 pm_name = f"{p.chef_de_projet.prenom} {p.chef_de_projet.nom}" if p.chef_de_projet else "N/A"
                 result.append({
                     "id": p.id,
                     "code": p.code,
                     "name": p.nom,
-                    "project_manager": pm_name
+                    "project_manager": pm_name,
+                    "total_amount": total_amount or 0.0
                 })
             return result
         finally:

@@ -1,10 +1,11 @@
 import datetime
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView,
-    QLabel, QHBoxLayout, QComboBox, QGroupBox, QDateEdit, QSplitter
+    QLabel, QHBoxLayout, QComboBox, QGroupBox, QDateEdit, QSplitter, QPushButton
 )
 from PyQt6.QtGui import QFont, QColor, QBrush
 from PyQt6.QtCore import Qt, QDate
+import qtawesome as qta
 
 from app.controllers.project_controller import ProjectController
 from app.controllers.user_controller import UserController
@@ -19,7 +20,11 @@ class WeeklyPilotageView(QWidget):
 
         # --- Main Layout ---
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(5, 5, 5, 5)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(15)
+
+        # --- Barre de Titre ---
+        self._setup_title_bar()
 
         # --- Main Horizontal Splitter ---
         h_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -28,30 +33,57 @@ class WeeklyPilotageView(QWidget):
         # --- Panels ---
         left_panel = self._create_left_panel()
         right_panel = self._create_right_panel()
-        left_panel.setMinimumWidth(0)
-        right_panel.setMinimumWidth(0)
-
+        
         h_splitter.addWidget(left_panel)
         h_splitter.addWidget(right_panel)
-        h_splitter.setStretchFactor(0, 0) # Left panel has fixed size policy
-        h_splitter.setStretchFactor(1, 1) # Right panel expands
-        h_splitter.setSizes([250, 750])   # Initial size ratio
+        h_splitter.setStretchFactor(0, 0)
+        h_splitter.setStretchFactor(1, 1) 
+        h_splitter.setSizes([300, 700])
 
         self._connect_signals()
-        self._on_year_changed(self.year_selector.currentText()) # Initial data load
+        self._on_year_changed(self.year_selector.currentText())
+
+    def _setup_title_bar(self):
+        title_bar = QHBoxLayout()
+        
+        icon_label = QLabel()
+        icon_label.setPixmap(qta.icon('fa5s.calendar-week', color='white').pixmap(32, 32))
+        title = QLabel("Pilotage Hebdomadaire")
+        font = title.font()
+        font.setPointSize(18)
+        font.setBold(True)
+        title.setFont(font)
+
+        title_bar.addWidget(icon_label)
+        title_bar.addSpacing(10)
+        title_bar.addWidget(title)
+        title_bar.addStretch()
+
+        title_bar.addWidget(QLabel("Année:"))
+        self.year_selector = QComboBox()
+        current_year = QDate.currentDate().year()
+        for year in range(current_year - 5, current_year + 2):
+            self.year_selector.addItem(str(year))
+        self.year_selector.setCurrentText(str(current_year))
+        title_bar.addWidget(self.year_selector)
+
+        title_bar.addSpacing(15)
+
+        title_bar.addWidget(QLabel("Utilisateur:"))
+        self.user_selector = QComboBox()
+        self.populate_user_filter()
+        title_bar.addWidget(self.user_selector)
+
+        self.refresh_button = QPushButton(qta.icon('fa5s.sync-alt', color='white'), " Rafraîchir")
+        title_bar.addWidget(self.refresh_button)
+
+        self.layout().addLayout(title_bar)
 
     def _create_left_panel(self):
         panel = QWidget()
         layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        # --- Vertical Splitter for Filters and Weeks Table ---
-        v_splitter = QSplitter(Qt.Orientation.Vertical)
+        layout.setContentsMargins(0, 0, 5, 0)
         
-        # Filters Widget
-        self.filter_group = self._create_filter_group()
-        
-        # Weeks Table
         self.table_weeks_list = QTableWidget()
         self.table_weeks_list.setColumnCount(2)
         self.table_weeks_list.setHorizontalHeaderLabels(["Année", "N° Semaine"])
@@ -60,18 +92,15 @@ class WeeklyPilotageView(QWidget):
         self.table_weeks_list.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table_weeks_list.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table_weeks_list.verticalHeader().setVisible(False)
+        self.table_weeks_list.setAlternatingRowColors(True)
 
-        v_splitter.addWidget(self.filter_group)
-        v_splitter.addWidget(self.table_weeks_list)
-        v_splitter.setStretchFactor(0, 0) # Filters have fixed size
-        v_splitter.setStretchFactor(1, 1) # Table expands
-
-        layout.addWidget(v_splitter)
+        layout.addWidget(self.table_weeks_list)
         return panel
 
     def _create_right_panel(self):
         panel = QWidget()
         layout = QVBoxLayout(panel)
+        layout.setContentsMargins(5, 0, 0, 0)
 
         # Detail Table
         self.table_daily_detail = QTableWidget()
@@ -80,36 +109,15 @@ class WeeklyPilotageView(QWidget):
         self.table_daily_detail.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table_daily_detail.verticalHeader().setVisible(False)
         self.table_daily_detail.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table_daily_detail.setAlternatingRowColors(True)
 
         layout.addWidget(self.table_daily_detail)
         return panel
 
-    def _create_filter_group(self):
-        filter_group = QGroupBox("Filtres")
-        filter_layout = QHBoxLayout(filter_group)
-
-        filter_layout.addWidget(QLabel("Année:"))
-        self.year_selector = QComboBox()
-        current_year = QDate.currentDate().year()
-        for year in range(current_year - 5, current_year + 2):
-            self.year_selector.addItem(str(year))
-        self.year_selector.setCurrentText(str(current_year))
-        self.year_selector.setMinimumWidth(100)
-        self.year_selector.setMinimumHeight(30)
-        self.year_selector.setStyleSheet("QComboBox { padding: 5px; }")
-        filter_layout.addWidget(self.year_selector)
-
-        filter_layout.addWidget(QLabel("Utilisateur:"))
-        self.user_selector = QComboBox()
-        self.populate_user_filter()
-        filter_layout.addWidget(self.user_selector)
-
-        filter_layout.addStretch()
-        return filter_group
-
     def _connect_signals(self):
         self.year_selector.currentTextChanged.connect(self._on_year_changed)
         self.user_selector.currentIndexChanged.connect(self.refresh_data)
+        self.refresh_button.clicked.connect(self.refresh_data)
         self.table_weeks_list.itemSelectionChanged.connect(self._on_week_selected)
 
     def _on_year_changed(self, year_str):

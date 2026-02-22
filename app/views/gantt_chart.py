@@ -28,6 +28,7 @@ class GanttChart(QWidget):
         self.initial_duration = 0
         self.initial_lag = 0
         self.initial_task_start_date = None
+        self.show_critical_path = False
         self.initial_task_end_date = None
         self.activity_color_map = {
             "Soft": QColor("#3498db"), "Conception Mécanique": QColor("#2ecc71"),
@@ -45,6 +46,11 @@ class GanttChart(QWidget):
         self.project_start_date = project_start_date
         self._update_dimensions()
         self.update()
+
+    def set_show_critical_path(self, show):
+        """Toggles the visibility of the critical path highlighting."""
+        self.show_critical_path = show
+        self.update() # Trigger a repaint
 
     def _update_dimensions(self):
         if not self.project_start_date:
@@ -268,6 +274,9 @@ class GanttChart(QWidget):
 
         self.task_rects.clear()
 
+        # Create a map for quick lookup of critical status
+        task_critical_map = {task['id']: task.get('is_critical', False) for task in self.tasks}
+
         for i, task in enumerate(self.tasks):
             y_pos = header_height + i * row_height
             start_date = task.get('date_debut_calculee')
@@ -280,10 +289,18 @@ class GanttChart(QWidget):
             x_pos = start_day * day_width
             bar_width = duration_days * day_width
 
-            color = self.activity_color_map.get(task.get('activity_type'), self.activity_color_map['Default'])
-            painter.setBrush(color)
-            painter.setPen(color.darker(120))
-            
+            is_critical = task_critical_map.get(task['id'], False)
+
+            # Determine color based on critical path status
+            if self.show_critical_path and is_critical:
+                color = QColor("#e74c3c") # Red for critical tasks
+                painter.setBrush(color)
+                painter.setPen(color.darker(150))
+            else:
+                color = self.activity_color_map.get(task.get('activity_type'), self.activity_color_map['Default'])
+                painter.setBrush(color)
+                painter.setPen(color.darker(120))
+
             rect = QRectF(x_pos, y_pos + padding, bar_width, row_height - 2 * padding)
             self.task_rects[task['id']] = rect
             painter.drawRoundedRect(rect, 5, 5)
@@ -307,10 +324,25 @@ class GanttChart(QWidget):
             painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, elided_text)
 
         # --- Draw Dependency Arrows ---
-        painter.setPen(QPen(QColor("#f39c12"), 1.5, Qt.PenStyle.SolidLine))
-        painter.setBrush(QColor("#f39c12"))
         for task in self.tasks:
             if task.get('parente_id') in self.task_rects:
+                parent_id = task['parente_id']
+                child_id = task['id']
+
+                is_parent_critical = task_critical_map.get(parent_id, False)
+                is_child_critical = task_critical_map.get(child_id, False)
+
+                # Set arrow color and thickness
+                if self.show_critical_path and is_parent_critical and is_child_critical:
+                    arrow_color = QColor("#e74c3c") # Red
+                    arrow_pen = QPen(arrow_color, 2.0, Qt.PenStyle.SolidLine)
+                else:
+                    arrow_color = QColor("#f39c12") # Orange
+                    arrow_pen = QPen(arrow_color, 1.5, Qt.PenStyle.SolidLine)
+                
+                painter.setPen(arrow_pen)
+                painter.setBrush(arrow_color)
+
                 parent_rect = self.task_rects[task['parente_id']]
                 child_rect = self.task_rects[task['id']]
                 
