@@ -298,9 +298,11 @@ class ProjectManagementWidget(QWidget):
         title_bar_layout.addStretch()
 
         self.edit_project_button = QPushButton(qta.icon('fa5s.pencil-alt', color='white'), " Modifier les infos")
+        self.fit_to_screen_button = QPushButton(qta.icon('fa5s.expand', color='white'), " Ajuster")
         self.export_csv_button = QPushButton(qta.icon('fa5s.file-csv', color='white'), " Export CSV")
         
         title_bar_layout.addWidget(self.edit_project_button)
+        title_bar_layout.addWidget(self.fit_to_screen_button)
         title_bar_layout.addWidget(self.export_csv_button)
         self.main_layout.addWidget(title_bar)
     
@@ -426,6 +428,7 @@ class ProjectManagementWidget(QWidget):
         self.gantt_chart.task_clicked.connect(self.on_gantt_task_clicked)
         self.gantt_chart.task_duration_changed.connect(self.on_task_duration_changed)
         self.gantt_chart.task_lag_changed.connect(self.on_task_lag_changed)
+        self.fit_to_screen_button.clicked.connect(self.fit_gantt_to_screen)
         self.edit_project_button.clicked.connect(self.open_edit_project_dialog)
         self.add_task_button.clicked.connect(self.add_task)
         self.modify_task_button.clicked.connect(self.update_task)
@@ -448,6 +451,7 @@ class ProjectManagementWidget(QWidget):
         self.left_panel.setVisible(loaded)
         self.gantt_scroll_area.setVisible(loaded)
         self.edit_project_button.setVisible(loaded)
+        self.fit_to_screen_button.setVisible(loaded)
         self.export_csv_button.setVisible(loaded)
         if not loaded:
             self.project_title_label.setText("Chargez un projet pour commencer")
@@ -471,9 +475,14 @@ class ProjectManagementWidget(QWidget):
             self.refresh_task_table()
             self.reset_task_form()
             self.set_project_loaded(True)
+            self.fit_gantt_to_screen()
         finally:
             loading_dialog.accept()
         
+    def fit_gantt_to_screen(self):
+        if self.current_project_id:
+            self.gantt_chart.fit_to_screen(self.gantt_scroll_area.width())
+
     def open_edit_project_dialog(self):
         if not self.current_project_id: return
         details = self.controller.get_project_details(self.current_project_id)

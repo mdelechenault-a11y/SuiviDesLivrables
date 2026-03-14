@@ -372,6 +372,12 @@ class DeliverablesTrackingView(QWidget):
 
         self.timeline.set_data(self.visible_projects, self.deliverables_data, year, self.monthly_totals)
 
+        # Par défaut, centrer la vue sur le début de l'année sélectionnée.
+        # La timeline affiche 24 mois, commençant en Juillet de l'année N-1.
+        # Janvier de l'année N est donc le 7ème mois, à l'index 6.
+        scroll_position = 6 * self.timeline.month_width
+        self.timeline_scroll_area.horizontalScrollBar().setValue(scroll_position)
+
     def _on_project_sort_changed(self):
         """
         Redessine la timeline pour correspondre au nouvel ordre de tri du tableau des projets.
@@ -429,6 +435,9 @@ class DeliverablesTrackingView(QWidget):
             name_label = QLabel(p['name'])
             pm_label = QLabel(p['project_manager'])
 
+            # Définir le tooltip
+            tooltip_text = f"Projet: {p['name']}\nChef de projet: {p.get('project_manager_fullname', p['project_manager'])}"
+
             # Définir l'alignement
             code_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             name_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
@@ -440,6 +449,7 @@ class DeliverablesTrackingView(QWidget):
                 style = f"background-color: transparent; padding-left: {padding}px;"
                 label.setStyleSheet(style)
                 label.setProperty("base_style", style)
+                label.setToolTip(tooltip_text)
 
             self.projects_table.setCellWidget(row_index, 0, code_label)
             self.projects_table.setCellWidget(row_index, 1, name_label)
@@ -455,6 +465,7 @@ class DeliverablesTrackingView(QWidget):
             style = "background-color: transparent; padding-right: 5px;"
             total_amount_label.setStyleSheet(style)
             total_amount_label.setProperty("base_style", style)
+            total_amount_label.setToolTip(tooltip_text)
             self.projects_table.setCellWidget(row_index, 3, total_amount_label)
         
         self.projects_table.setSortingEnabled(True)

@@ -10,6 +10,7 @@ project_root = os.path.dirname(os.path.abspath(__file__))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker, joinedload
 from app.models.base import engine
 from app.models.schema import (Profil, User, Client, Project, ActivityType,
@@ -31,26 +32,33 @@ def clear_data():
     """Nettoie les tables pertinentes pour éviter les conflits."""
     session = Session()
     print("Nettoyage des données de l'application...")
-    try:
-        # L'ordre est important à cause des clés étrangères
-        session.query(TimeEntry).delete()
-        session.query(TaskAssignment).delete()
-        session.query(LivrableComment).delete()
-        session.query(Livrable).delete()
-        session.query(Task).delete()
-        session.query(Project).delete()
-        session.query(User).delete()
-        session.query(Client).delete()
-        session.query(Profil).delete()
-        session.query(ActivityType).delete()
-        session.query(Company).delete()
-        session.commit()
-        print("Données nettoyées avec succès.")
-    except Exception as e:
-        session.rollback()
-        print(f"Erreur lors du nettoyage des données : {e}")
-    finally:
-        session.close()
+    with session.begin():
+        try:
+            # Désactiver les contraintes de clé étrangère pour MySQL pour gérer les dépendances complexes
+            if session.bind.dialect.name == 'mysql':
+                session.execute(text("SET FOREIGN_KEY_CHECKS=0;"))
+
+            # L'ordre est important, mais avec les contraintes désactivées, c'est plus sûr.
+            session.query(TimeEntry).delete(synchronize_session=False)
+            session.query(TaskAssignment).delete(synchronize_session=False)
+            session.query(LivrableComment).delete(synchronize_session=False)
+            session.query(Livrable).delete(synchronize_session=False)
+            session.query(Task).delete(synchronize_session=False)
+            session.query(Project).delete(synchronize_session=False)
+            session.query(User).delete(synchronize_session=False)
+            session.query(Client).delete(synchronize_session=False)
+            session.query(ActivityType).delete(synchronize_session=False)
+            session.query(Company).delete(synchronize_session=False)
+            session.query(Profil).delete(synchronize_session=False)
+            
+            print("Données nettoyées avec succès.")
+        except Exception as e:
+            print(f"Erreur lors du nettoyage des données : {e}")
+            raise # Propage l'erreur pour que la transaction soit annulée (rollback)
+        finally:
+            # Toujours réactiver les contraintes, même en cas d'erreur
+            if session.bind.dialect.name == 'mysql':
+                session.execute(text("SET FOREIGN_KEY_CHECKS=1;"))
 
 # --- Commandes principales ---
 
@@ -101,18 +109,20 @@ def seed_basic_data():
     try:
         # Créer les profils
         print("Création des profils de base...")
+        profil_admin = Profil(nom='Admin')
         profil_rh = Profil(nom='RH')
         profil_dev = Profil(nom='Développeur')
         profil_cp = Profil(nom='Chef de projet')
-        session.add_all([profil_rh, profil_dev, profil_cp])
+        session.add_all([profil_admin, profil_rh, profil_dev, profil_cp])
         session.commit()
 
         # Créer les utilisateurs
         print("Création des utilisateurs de base...")
+        user_admin = User(username='admin', email='admin@example.com', prenom="Admin", nom="User", password_hash=UserController.set_password('admin'), profil=profil_admin)
         user_rh = User(username='test_rh', email='rh@example.com', prenom="Test", nom="RH", password_hash=UserController.set_password('password_rh'), profil=profil_rh)
         user_dev = User(username='test_dev', email='dev@example.com', prenom="Test", nom="Dev", password_hash=UserController.set_password('password_dev'), profil=profil_dev)
         user_cp = User(username='test_cp', email='cp@example.com', prenom="Test", nom="CP", password_hash=UserController.set_password('password_cp'), profil=profil_cp)
-        session.add_all([user_rh, user_dev, user_cp])
+        session.add_all([user_admin, user_rh, user_dev, user_cp])
         session.commit()
         
         print("Peuplement de base terminé avec succès.")

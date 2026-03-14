@@ -1,9 +1,9 @@
 import datetime
 from collections import defaultdict
 from sqlalchemy.orm import sessionmaker, joinedload
-from sqlalchemy import func, select
+from sqlalchemy import func, select, case, and_
 from app.models.base import engine
-from app.models.schema import Project, Livrable, ProjectStatus, LivrableComment, User, Company
+from app.models.schema import Project, Livrable, ProjectStatus, LivrableComment, User, Company, ActivityType, Task, Client
 
 Session = sessionmaker(bind=engine)
 
@@ -41,12 +41,14 @@ class DeliverableController:
             projects_with_totals = query.order_by(Project.nom).all()
             result = []
             for p, total_amount in projects_with_totals:
-                pm_name = f"{p.chef_de_projet.prenom} {p.chef_de_projet.nom}" if p.chef_de_projet else "N/A"
+                pm_fullname = f"{p.chef_de_projet.prenom} {p.chef_de_projet.nom}" if p.chef_de_projet else "N/A"
+                pm_username = p.chef_de_projet.username if p.chef_de_projet else "N/A"
                 result.append({
                     "id": p.id,
                     "code": p.code,
                     "name": p.nom,
-                    "project_manager": pm_name,
+                    "project_manager": pm_username,
+                    "project_manager_fullname": pm_fullname,
                     "total_amount": total_amount or 0.0
                 })
             return result
@@ -86,12 +88,14 @@ class DeliverableController:
             projects_with_totals = query.order_by(Project.nom).all()
             result = []
             for p, total_amount in projects_with_totals:
-                pm_name = f"{p.chef_de_projet.prenom} {p.chef_de_projet.nom}" if p.chef_de_projet else "N/A"
+                pm_fullname = f"{p.chef_de_projet.prenom} {p.chef_de_projet.nom}" if p.chef_de_projet else "N/A"
+                pm_username = p.chef_de_projet.username if p.chef_de_projet else "N/A"
                 result.append({
                     "id": p.id,
                     "code": p.code,
                     "name": p.nom,
-                    "project_manager": pm_name,
+                    "project_manager": pm_username,
+                    "project_manager_fullname": pm_fullname,
                     "total_amount": total_amount or 0.0
                 })
             return result
@@ -366,24 +370,114 @@ class DeliverableController:
         finally:
             session.close()
 
+    def get_available_years(self, company_id=None):
+        """Returns a sorted list of unique years found in deliverables for a given company."""
+        session = Session()
+        try:
+            query = session.query(func.extract('year', Livrable.date_prevue)).distinct()
+
+            if company_id:
+                query = query.join(Project).filter(Project.company_id == company_id)
+
+            years = [year[0] for year in query.all() if year[0] is not None]
+            # Return sorted in descending order for better UX
+            return sorted(list(set(years)), reverse=True)
+        finally:
+            session.close()
+
     def get_financial_stats(self, year, user_id=None, company_id=None):
         """Calcule les statistiques financières pour une année donnée, en utilisant les objectifs de la société de l'utilisateur."""
         session = Session()
         try:
             # 1. Récupérer les objectifs de la société
-            objectives = {
-                'objective_point_mort': 0.0,
-                'objective_1': 0.0,
-                'objective_2': 0.0
-            }
-            if user_id:
-                user = session.query(User).options(joinedload(User.company)).get(user_id)
-                if user and user.company:
-                    company = user.company
+            if company_id:
+                # Objectifs pour une seule société
+                company = session.query(Company).get(company_id)
+                if company:
                     objectives = {
                         'objective_point_mort': company.objective_point_mort or 0.0,
                         'objective_1': company.objective_1 or 0.0,
                         'objective_2': company.objective_2 or 0.0
+                    }
+                else:
+                    objectives = {'objective_point_mort': 0.0, 'objective_1': 0.0, 'objective_2': 0.0}
+            else:
+                # Objectifs pour "Toutes les sociétés" : on somme les objectifs de toutes les sociétés
+                total_objectives = session.query(
+                    func.sum(Company.objective_point_mort),
+                    func.sum(Company.objective_1),
+                    func.sum(Company.objective_2)
+                ).one()
+                objectives = {
+                    'objective_point_mort': total_objectives[0] or 0.0,
+                    'objective_1': total_objectives[1] or 0.0,
+                    'objective_2': total_objectives[2] or 0.0
+                }
+
+            # --- New Queries for KPI View ---
+            # 6. Activity Distribution (based on planned hours in relevant projects)
+            project_ids_in_year_query = session.query(Project.id).join(Livrable).filter(func.extract('year', Livrable.date_prevue) == year)
+            if company_id:
+                project_ids_in_year_query = project_ids_in_year_query.filter(Project.company_id == company_id)
+            project_ids_in_year = [p[0] for p in project_ids_in_year_query.distinct().all()]
+
+            activity_distribution = {}
+            if project_ids_in_year:
+                activity_dist_query = session.query(
+                    ActivityType.nom,
+                    func.sum(Task.heures_prevues)
+                ).join(Task, ActivityType.id == Task.activity_type_id)\
+                    .filter(Task.project_id.in_(project_ids_in_year))\
+                    .group_by(ActivityType.nom)
+                activity_distribution = {name: hours for name, hours in activity_dist_query.all() if hours and hours > 0}
+
+            # 7. Top 10 Clients by planned deliverable amount
+            top_clients_query = session.query(
+                Client.name,
+                func.sum(Livrable.montant).label('total_amount')
+            ).join(Project, Client.id == Project.client_id)\
+                .join(Livrable, Project.id == Livrable.project_id)\
+                .filter(func.extract('year', Livrable.date_prevue) == year)
+
+            if company_id:
+                top_clients_query = top_clients_query.filter(Project.company_id == company_id)
+
+            top_clients_query = top_clients_query.group_by(Client.name)\
+                                                    .order_by(func.sum(Livrable.montant).desc())\
+                                                    .limit(10)
+
+            top_clients = [{'name': name, 'amount': amount} for name, amount in top_clients_query.all()]
+            # --- End of New Queries ---
+
+            # 5. Delay statistics
+            delay_query = session.query(
+                func.extract('month', Livrable.date_prevue),
+                func.sum(case((Livrable.est_facture == True, 1), else_=0)),  # "OK" count
+                # Count of all delayed deliverables ("NOK" column)
+                func.sum(case((and_(Livrable.date_initiale != None, Livrable.date_prevue != Livrable.date_initiale), 1), else_=0)),
+                # Total delayed amount (non-client responsibility)
+                func.sum(case((and_(Livrable.date_initiale != None, Livrable.date_prevue != Livrable.date_initiale, Livrable.responsabilite_retard != 'Client'), Livrable.montant), else_=0.0)),
+                # Total delayed amount (client responsibility)
+                func.sum(case((and_(Livrable.date_initiale != None, Livrable.date_prevue != Livrable.date_initiale, Livrable.responsabilite_retard == 'Client'), Livrable.montant), else_=0.0))
+            ).join(Project).filter(func.extract('year', Livrable.date_prevue) == year)
+
+            if company_id:
+                delay_query = delay_query.filter(Project.company_id == company_id)
+
+            delay_results = delay_query.group_by(func.extract('month', Livrable.date_prevue)).all()
+
+            delay_stats_by_month = [
+                {'invoiced': 0, 'delayed_count': 0, 'delayed_amount_non_client': 0.0, 'delayed_amount_client': 0.0} for _ in range(12)
+            ]
+            for res in delay_results:
+                month, invoiced_count, delayed_count, delayed_amount_non_client, delayed_amount_client = res
+                if month is not None:
+                    month_idx = int(month) - 1
+                    delay_stats_by_month[month_idx] = {
+                        'invoiced': invoiced_count or 0,
+                        'delayed_count': delayed_count or 0,
+                        'delayed_amount_non_client': delayed_amount_non_client or 0.0,
+                        'delayed_amount_client': delayed_amount_client or 0.0
                     }
 
             # Base queries
@@ -431,7 +525,10 @@ class DeliverableController:
                 "monthly_planned": monthly_planned,
                 "monthly_billed": monthly_billed,
                 "cumulative_planned": cumulative_planned,
-                "objectives": objectives
+                "objectives": objectives,
+                "delay_stats": delay_stats_by_month,
+                "activity_distribution": activity_distribution,
+                "top_clients": top_clients
             }
         finally:
             session.close()

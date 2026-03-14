@@ -43,7 +43,25 @@ class GanttChart(QWidget):
 
     def set_data(self, tasks, project_start_date):
         self.tasks = tasks
-        self.project_start_date = project_start_date
+        
+        if not self.tasks:
+            self.project_start_date = project_start_date
+            self._update_dimensions()
+            self.update()
+            return
+
+        # Find the earliest start date among all tasks
+        earliest_task_date = None
+        start_dates = [t['date_debut_calculee'] for t in self.tasks if t.get('date_debut_calculee')]
+        if start_dates:
+            earliest_task_date = min(start_dates)
+
+        # Use the earliest task date, or fall back to the project's official start date
+        base_date = earliest_task_date if earliest_task_date else project_start_date
+        
+        # Set the chart's start date with a buffer
+        self.project_start_date = base_date - datetime.timedelta(days=7)
+
         self._update_dimensions()
         self.update()
 
@@ -53,19 +71,37 @@ class GanttChart(QWidget):
         self.update() # Trigger a repaint
 
     def _update_dimensions(self):
-        if not self.project_start_date:
+        if not self.project_start_date or not self.tasks:
             self.setMinimumSize(400, 200)
             return
 
         end_dates = [t['date_fin'] for t in self.tasks if t.get('date_fin')]
-        project_end_date = max(end_dates) if end_dates else self.project_start_date + datetime.timedelta(days=60)
-        total_days = (project_end_date - self.project_start_date).days + 30 # Add buffer
+        # If there are no end dates, use the start date + some buffer
+        latest_date = max(end_dates) if end_dates else self.project_start_date + datetime.timedelta(days=60)
+        
+        # Add a buffer to the right
+        total_duration_end_date = latest_date + datetime.timedelta(days=14)
+        
+        total_days = (total_duration_end_date - self.project_start_date).days
         
         total_width = total_days * self.base_day_width * self.zoom_factor
         total_height = 30 + len(self.tasks) * 25 # header + rows
 
         self.setMinimumSize(int(total_width), total_height)
         self.update()
+
+    def fit_to_screen(self, available_width):
+        if not self.tasks or not self.project_start_date: return
+        end_dates = [t['date_fin'] for t in self.tasks if t.get('date_fin')]
+        if not end_dates: return
+        latest_date = max(end_dates)
+        total_duration_end_date = latest_date + datetime.timedelta(days=14)
+        total_days = (total_duration_end_date - self.project_start_date).days
+        if total_days <= 0 or self.base_day_width <= 0: return
+        effective_width = available_width - 20
+        new_zoom_factor = effective_width / (total_days * self.base_day_width)
+        self.zoom_factor = max(0.1, min(new_zoom_factor, 5.0))
+        self._update_dimensions()
 
     def wheelEvent(self, event):
         if event.angleDelta().y() > 0:

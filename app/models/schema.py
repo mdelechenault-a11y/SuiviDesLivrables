@@ -9,7 +9,7 @@ class Company(Base):
     __tablename__ = 'companies'
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, nullable=False)
+    name = Column(String(255), unique=True, nullable=False)
     objective_point_mort = Column(Float, default=0.0)
     objective_1 = Column(Float, default=0.0)
     objective_2 = Column(Float, default=0.0)
@@ -24,11 +24,11 @@ class Livrable(Base):
     __tablename__ = 'livrables'
 
     id = Column(Integer, primary_key=True, index=True)
-    nom = Column(String, nullable=False)
+    nom = Column(String(255), nullable=False)
     montant = Column(Float, nullable=False)
     date_prevue = Column(Date, nullable=False)
     date_initiale = Column(Date, nullable=True)
-    responsabilite_retard = Column(String, nullable=True)
+    responsabilite_retard = Column(String(255), nullable=True)
     project_id = Column(Integer, ForeignKey('projects.id'), nullable=False)
     est_facture = Column(Boolean, default=False, nullable=False)
     project = relationship("Project", back_populates="livrables")
@@ -54,7 +54,7 @@ class Profil(Base):
     __tablename__ = 'profils'
 
     id = Column(Integer, primary_key=True)
-    nom = Column(String, unique=True, nullable=False)
+    nom = Column(String(255), unique=True, nullable=False)
     users = relationship("User", back_populates="profil")
 
     def __repr__(self):
@@ -76,11 +76,11 @@ class User(Base):
     __tablename__ = 'users'
 
     id = Column(Integer, primary_key=True)
-    username = Column(String, unique=True, nullable=False)
-    email = Column(String, unique=True, nullable=False)
-    prenom = Column(String, nullable=False)
-    nom = Column(String, nullable=False)
-    password_hash = Column(String, nullable=False)
+    username = Column(String(255), unique=True, nullable=False)
+    email = Column(String(255), unique=True, nullable=False)
+    prenom = Column(String(255), nullable=False)
+    nom = Column(String(255), nullable=False)
+    password_hash = Column(String(255), nullable=False)
     profil_id = Column(Integer, ForeignKey('profils.id'))
     company_id = Column(Integer, ForeignKey('companies.id'), nullable=True)
     
@@ -98,12 +98,12 @@ class Client(Base):
     __tablename__ = 'clients'
 
     id = Column(Integer, primary_key=True)
-    name = Column(String, unique=True, nullable=False)
+    name = Column(String(255), unique=True, nullable=False)
     code = Column(String(3), nullable=True)
     address = Column(Text, nullable=True)
-    phone = Column(String, nullable=True)
-    website = Column(String, nullable=True)
-    contact_info = Column(String, nullable=True)
+    phone = Column(String(255), nullable=True)
+    website = Column(String(255), nullable=True)
+    contact_info = Column(Text, nullable=True)
     is_visible = Column(Boolean, default=True, nullable=False)
     projects = relationship("Project", back_populates="client")
 
@@ -119,8 +119,8 @@ class Project(Base):
     __tablename__ = 'projects'
 
     id = Column(Integer, primary_key=True)
-    code = Column(String, unique=True, nullable=False)
-    nom = Column(String, nullable=False)
+    code = Column(String(50), unique=True, nullable=False)
+    nom = Column(String(255), nullable=False)
     date_debut = Column(Date, nullable=False)
     statut = Column(Enum(ProjectStatus), nullable=False, default=ProjectStatus.CHiffrage)
     budget_material_planned = Column(Float, default=0.0)
@@ -143,7 +143,7 @@ class ActivityType(Base):
     __tablename__ = 'activity_types'
 
     id = Column(Integer, primary_key=True)
-    nom = Column(String, unique=True, nullable=False)
+    nom = Column(String(255), unique=True, nullable=False)
     tasks = relationship("Task", back_populates="activity_type")
 
     def __repr__(self):
@@ -153,7 +153,7 @@ class Task(Base):
     __tablename__ = 'tasks'
 
     id = Column(Integer, primary_key=True)
-    nom = Column(String, nullable=False)
+    nom = Column(String(255), nullable=False)
     heures_prevues = Column(Float, nullable=False)
     temps_passe_total = Column(Float, default=0.0, nullable=False)
     duree_jours = Column(Float)

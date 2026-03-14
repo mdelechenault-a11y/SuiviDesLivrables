@@ -22,6 +22,7 @@ from app.views.weekly_pilotage import WeeklyPilotageView
 from app.views.deliverables_tracking import DeliverablesTrackingView
 from app.views.statistics_view import StatisticsView
 from app.views.company_settings_view import CompanySettingsView
+from app.views.kpi_view import KPIView
 
 class MainWindow(QMainWindow):
     def __init__(self, user, controllers):
@@ -84,15 +85,16 @@ class MainWindow(QMainWindow):
         self.company_settings_widget = CompanySettingsView()
         self.stacked_widget.addWidget(self.company_settings_widget)
 
+        # KPI View
+        self.kpi_widget = KPIView(self.user)
+        self.stacked_widget.addWidget(self.kpi_widget)
+
     def setup_menus(self):
         menu_bar = self.menuBar()
 
         # File Menu
         file_menu = menu_bar.addMenu("Fichier")
         exit_action = QAction(qta.icon('fa5s.sign-out-alt', color='white'), "Quitter", self)
-        client_action = QAction(qta.icon('fa5s.users', color='white'), "Clients", self)
-        client_action.triggered.connect(self.show_client_management)
-        file_menu.addAction(client_action)
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
 
@@ -114,6 +116,11 @@ class MainWindow(QMainWindow):
         deliverables_action = QAction(qta.icon('fa5s.file-invoice-dollar', color='white'), "Suivi des Livrables", self)
         deliverables_action.triggered.connect(self.show_deliverables_tracking)
         pilotage_menu.addAction(deliverables_action)
+
+        # --- KPI Dashboard ---
+        kpi_action = QAction(qta.icon('fa5s.tachometer-alt', color='white'), "KPI", self)
+        kpi_action.triggered.connect(self.show_kpi)
+        pilotage_menu.addAction(kpi_action)
 
         # --- Temps Menu (was Rapport) ---
         time_menu = menu_bar.addMenu("Temps")
@@ -138,16 +145,21 @@ class MainWindow(QMainWindow):
             project_menu.addAction(load_project_action)
 
         if self.user.profil.nom == "Admin":
-            # Company/Users Menu
-            company_menu = menu_bar.addMenu("Sociétés")
+            # Settings Menu (was Company/Users Menu)
+            settings_menu = menu_bar.addMenu("Paramètres")
             
-            user_management_action = QAction(qta.icon('fa5s.user-cog', color='white'), "Gestion des Utilisateurs", self)
+            # Client Management (moved from File menu)
+            client_action = QAction(qta.icon('fa5s.users', color='white'), "Clients", self)
+            client_action.triggered.connect(self.show_client_management)
+            settings_menu.addAction(client_action)
+            
+            user_management_action = QAction(qta.icon('fa5s.user-cog', color='white'), "Utilisateurs", self)
             user_management_action.triggered.connect(self.show_user_management)
-            company_menu.addAction(user_management_action)
+            settings_menu.addAction(user_management_action)
 
-            company_settings_action = QAction(qta.icon('fa5s.building', color='white'), "Paramètres Sociétés", self)
+            company_settings_action = QAction(qta.icon('fa5s.building', color='white'), "Sociétés", self)
             company_settings_action.triggered.connect(self.show_company_settings)
-            company_menu.addAction(company_settings_action)
+            settings_menu.addAction(company_settings_action)
 
     def show_dashboard(self):
         self.dashboard_widget.refresh_tasks_table()
@@ -191,6 +203,10 @@ class MainWindow(QMainWindow):
     def show_deliverables_tracking(self):
         self.deliverables_tracking_widget.refresh_data()
         self.stacked_widget.setCurrentWidget(self.deliverables_tracking_widget)
+
+    def show_kpi(self):
+        self.kpi_widget.refresh_data()
+        self.stacked_widget.setCurrentWidget(self.kpi_widget)
 
     def open_project_from_dashboard(self, project_id):
         """Charge un projet dans la vue de gestion et affiche cette vue."""
