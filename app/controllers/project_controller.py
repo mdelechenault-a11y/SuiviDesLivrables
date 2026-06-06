@@ -640,41 +640,49 @@ class ProjectController:
     def get_global_project_summary(self):
         session = Session()
         try:
-            # Charger les projets avec leurs tâches et les types d'activités associés
-            projects = session.query(Project).options(
-                joinedload(Project.tasks).joinedload(Task.activity_type)
-            ).all()
+            # Single query to get all projects and their aggregated task data
+            task_aggregates = session.query(
+                Project.id.label('project_id'),
+                Project.nom.label('project_name'),
+                Project.code.label('project_code'),
+                ActivityType.nom.label('activity_name'),
+                func.sum(Task.heures_prevues).label('planned'),
+                func.sum(Task.temps_passe_total).label('logged')
+            ).join(Task, Project.tasks) \
+             .join(ActivityType, Task.activity_type) \
+             .group_by(Project.id, Project.nom, Project.code, ActivityType.nom) \
+             .all()
 
+            # Process the aggregated data in Python
+            summary_data = defaultdict(lambda: {
+                'total_planned': 0.0,
+                'total_logged': 0.0,
+                'activity_summary': defaultdict(lambda: {'planned': 0.0, 'logged': 0.0})
+            })
+
+            for agg in task_aggregates:
+                project_data = summary_data[agg.project_id]
+                project_data['project_id'] = agg.project_id
+                project_data['project_name'] = agg.project_name
+                project_data['project_code'] = agg.project_code
+                
+                planned_hours = agg.planned or 0.0
+                logged_hours = agg.logged or 0.0
+                
+                project_data['activity_summary'][agg.activity_name]['planned'] += planned_hours
+                project_data['activity_summary'][agg.activity_name]['logged'] += logged_hours
+                project_data['total_planned'] += planned_hours
+                project_data['total_logged'] += logged_hours
+            
+            # Convert the defaultdict to a list of dictionaries
             summary_list = []
-            for project in projects:
-                project_total_planned = 0.0
-                project_total_logged = 0.0
-                activity_breakdown = defaultdict(lambda: {'planned': 0.0, 'logged': 0.0})
-
-                for task in project.tasks:
-                    planned_hours = task.heures_prevues or 0.0
-                    logged_hours = task.temps_passe_total or 0.0  # Utilise la somme pré-calculée
-                    activity_name = task.activity_type.nom if task.activity_type else "Non défini"
-                    
-                    project_total_planned += planned_hours
-                    project_total_logged += logged_hours
-                    
-                    activity_breakdown[activity_name]['planned'] += planned_hours
-                    activity_breakdown[activity_name]['logged'] += logged_hours
-
-                activity_summary_list = [
-                    {'activity_name': name, 'planned': data['planned'], 'logged': data['logged']}
-                    for name, data in activity_breakdown.items()
+            for project_id, data in summary_data.items():
+                data['activity_summary'] = [
+                    {'activity_name': name, 'planned': d['planned'], 'logged': d['logged']}
+                    for name, d in sorted(data['activity_summary'].items())
                 ]
+                summary_list.append(data)
 
-                summary_list.append({
-                    'project_id': project.id,
-                    'project_name': project.nom,
-                    'project_code': project.code,
-                    'total_planned': project_total_planned,
-                    'total_logged': project_total_logged,
-                    'activity_summary': sorted(activity_summary_list, key=lambda x: x['activity_name'])
-                })
             return sorted(summary_list, key=lambda x: x['project_name'])
         finally:
             session.close()
@@ -800,6 +808,42 @@ class ProjectController:
         finally:
             session.close()
 			
+    def get_all_deliverables_and_milestones(self):
+        session = Session()
+        try:
+            from app.models.schema import Livrable
+            events = []
+            
+            # Récupérer les tâches jalons
+            milestones = session.query(Task, Project.nom.label("project_name")) \
+                                .join(Project, Task.project_id == Project.id) \
+                                .filter(Task.is_milestone == True).all()
+            for task, project_name in milestones:
+                if task.date_fin:
+                    events.append({
+                        "name": task.nom,
+                        "date": task.date_fin.isoformat(),
+                        "type": "Jalon",
+                        "project_name": project_name
+                    })
+
+            # Récupérer les livrables
+            livrables = session.query(Livrable, Project.nom.label("project_name")) \
+                                  .join(Project, Livrable.project_id == Project.id) \
+                                  .all()
+            for livrable, project_name in livrables:
+                if livrable.date_prevue:
+                    events.append({
+                        "name": livrable.nom,
+                        "date": livrable.date_prevue.isoformat(),
+                        "type": "Livrable",
+                        "project_name": project_name
+                    })
+
+            return events
+        finally:
+            session.close()
+
     def export_project_to_csv(self, project_id):
         session = Session()
         try:

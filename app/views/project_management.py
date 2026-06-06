@@ -5,13 +5,14 @@ from PyQt6.QtWidgets import (
     QPushButton, QVBoxLayout, QFormLayout, QMessageBox, QDateEdit, 
     QGroupBox, QHBoxLayout, QTableWidget, QHeaderView, QTableWidgetItem, QSpinBox,
     QAbstractItemView, QScrollArea, QDialog, QDialogButtonBox, QDoubleSpinBox,
-    QCheckBox, QSplitter, QSizePolicy
+    QCheckBox, QSplitter, QSizePolicy, QTabWidget, QFileDialog
 )
 import datetime
 from PyQt6.QtCore import QDate, Qt, pyqtSignal
 import qtawesome as qta
 
 from app.controllers.project_controller import ProjectController
+from app.controllers.document_controller import DocumentController
 from app.views.gantt_chart import GanttChart
 from app.views.widgets.loading_dialog import LoadingDialog
 from app.models.schema import ProjectStatus
@@ -238,6 +239,7 @@ class ProjectManagementWidget(QWidget):
     def __init__(self):
         super().__init__()
         self.controller = ProjectController()
+        self.document_controller = DocumentController()
         self.current_project_id = None
         self.current_task_id = None
         self.project_start_date = None
@@ -260,10 +262,14 @@ class ProjectManagementWidget(QWidget):
         self.left_panel_layout.setSpacing(5)
         self.left_panel_layout.setContentsMargins(0, 0, 0, 0)
         
+        self.right_tabs = QTabWidget()
+        
         self.gantt_scroll_area = QScrollArea()
-
+        self.right_tabs.addTab(self.gantt_scroll_area, "Gantt")
+        self._setup_documents_tab()
+        
         self.content_splitter.addWidget(self.left_panel)
-        self.content_splitter.addWidget(self.gantt_scroll_area)
+        self.content_splitter.addWidget(self.right_tabs)
         self.content_splitter.setStretchFactor(0, 0) # Le panneau de gauche ne s'étire pas
         self.content_splitter.setStretchFactor(1, 1) # Le Gantt prend l'espace restant
         self.content_splitter.setSizes([700, 500]) # Tailles initiales
@@ -398,6 +404,32 @@ class ProjectManagementWidget(QWidget):
         self.left_panel.setMinimumWidth(0)
         self.gantt_scroll_area.setMinimumWidth(0)
 
+    def _setup_documents_tab(self):
+        self.documents_tab = QWidget()
+        layout = QVBoxLayout(self.documents_tab)
+        
+        doc_title_layout = QHBoxLayout()
+        doc_title = QLabel("Documents du Projet")
+        doc_font = doc_title.font()
+        doc_font.setBold(True)
+        doc_title.setFont(doc_font)
+        doc_title_layout.addWidget(doc_title)
+        doc_title_layout.addStretch()
+        self.add_doc_button = QPushButton(qta.icon('fa5s.plus', color='white'), " Ajouter")
+        self.delete_doc_button = QPushButton(qta.icon('fa5s.trash-alt', color='white'), " Supprimer")
+        doc_title_layout.addWidget(self.add_doc_button)
+        doc_title_layout.addWidget(self.delete_doc_button)
+        layout.addLayout(doc_title_layout)
+
+        self.documents_table = QTableWidget()
+        self.documents_table.setColumnCount(2)
+        self.documents_table.setHorizontalHeaderLabels(["ID", "Nom du fichier"])
+        self.documents_table.hideColumn(0)
+        self.documents_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        layout.addWidget(self.documents_table)
+        
+        self.right_tabs.addTab(self.documents_tab, "Documents")
+        
     def _setup_task_table(self):
         self.task_table.setColumnCount(7)
         self.task_table.setHorizontalHeaderLabels(["ID", "Nom", "Début", "Fin", "Durée (j)", "Heures Prév.", "Parente ID"])
@@ -438,7 +470,9 @@ class ProjectManagementWidget(QWidget):
         self.export_csv_button.clicked.connect(self.export_project_to_csv)
         self.task_table.rows_reordered.connect(self.on_tasks_reordered)
         self.critical_path_checkbox.stateChanged.connect(self.on_critical_path_toggled)
-    
+        self.add_doc_button.clicked.connect(self.add_document)
+        self.delete_doc_button.clicked.connect(self.delete_document)
+
     def eventFilter(self, source, event):
         if (event.type() == event.Type.MouseButtonPress and
             source is self.task_table.viewport()):
@@ -449,7 +483,7 @@ class ProjectManagementWidget(QWidget):
     
     def set_project_loaded(self, loaded):
         self.left_panel.setVisible(loaded)
-        self.gantt_scroll_area.setVisible(loaded)
+        self.right_tabs.setVisible(loaded)
         self.edit_project_button.setVisible(loaded)
         self.fit_to_screen_button.setVisible(loaded)
         self.export_csv_button.setVisible(loaded)
@@ -473,6 +507,7 @@ class ProjectManagementWidget(QWidget):
             
             self.populate_parent_tasks()
             self.refresh_task_table()
+            self.refresh_documents_table()
             self.reset_task_form()
             self.set_project_loaded(True)
             self.fit_gantt_to_screen()
@@ -793,6 +828,44 @@ class ProjectManagementWidget(QWidget):
             QMessageBox.information(self, "Exportation Réussie", f"Le projet a été exporté avec succès dans:\n{message}")
         else:
             QMessageBox.critical(self, "Erreur d'Exportation", message)
+
+    def add_document(self):
+        if not self.current_project_id:
+            QMessageBox.warning(self, "Aucun projet sélectionné", "Veuillez charger un projet pour ajouter un document.")
+            return
+
+        file_path, _ = QFileDialog.getOpenFileName(self, "Sélectionner un fichier")
+        if file_path:
+            success, message = self.document_controller.add_document('project', self.current_project_id, file_path)
+            if success:
+                self.refresh_documents_table()
+            else:
+                QMessageBox.critical(self, "Erreur", message)
+
+    def delete_document(self):
+        selected_items = self.documents_table.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "Aucun document sélectionné", "Veuillez sélectionner un document à supprimer.")
+            return
+
+        doc_id = int(self.documents_table.item(selected_items[0].row(), 0).text())
+        reply = QMessageBox.question(self, "Confirmation", "Êtes-vous sûr de vouloir supprimer ce document ?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            success, message = self.document_controller.delete_document(doc_id)
+            if success:
+                self.refresh_documents_table()
+            else:
+                QMessageBox.critical(self, "Erreur", message)
+
+    def refresh_documents_table(self):
+        self.documents_table.setRowCount(0)
+        if self.current_project_id:
+            documents = self.document_controller.get_documents_for('project', self.current_project_id)
+            for row, doc in enumerate(documents):
+                self.documents_table.insertRow(row)
+                self.documents_table.setItem(row, 0, QTableWidgetItem(str(doc['id'])))
+                self.documents_table.setItem(row, 1, QTableWidgetItem(doc['file_path']))
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

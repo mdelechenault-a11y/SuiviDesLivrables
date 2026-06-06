@@ -2,11 +2,12 @@ import sys
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QPushButton, QLabel,
     QHBoxLayout, QHeaderView, QMessageBox, QDialog, QFormLayout,
-    QLineEdit, QTextEdit, QDialogButtonBox, QAbstractItemView, QLabel
+    QLineEdit, QTextEdit, QDialogButtonBox, QAbstractItemView, QSplitter, QFileDialog
 )
 from PyQt6.QtCore import Qt
 import qtawesome as qta
 from app.controllers.project_controller import ProjectController
+from app.controllers.document_controller import DocumentController
 
 class ClientEditDialog(QDialog):
     """Dialogue pour ajouter ou modifier un client."""
@@ -110,6 +111,7 @@ class ClientManagementView(QWidget):
     def __init__(self):
         super().__init__()
         self.controller = ProjectController()
+        self.document_controller = DocumentController()
         
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(20, 20, 20, 20)
@@ -129,37 +131,47 @@ class ClientManagementView(QWidget):
         title_bar.addSpacing(10)
         title_bar.addWidget(title)
         title_bar.addStretch()
+        
+        self.main_layout.addLayout(title_bar)
+        
+        # Splitter
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_layout.addWidget(self.splitter)
 
-        # --- Search Bar ---
+        # --- Left Panel (Client List) ---
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        
+        # Search and buttons
+        list_actions_layout = QHBoxLayout()
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Rechercher par nom ou code...")
         self.search_input.setMaximumWidth(250)
-        title_bar.addWidget(self.search_input)
-        title_bar.addSpacing(10)
+        list_actions_layout.addWidget(self.search_input)
+        list_actions_layout.addStretch()
         
         self.add_button = QPushButton(qta.icon('fa5s.plus', color='white'), " Ajouter")
         self.edit_button = QPushButton(qta.icon('fa5s.edit', color='white'), " Modifier")
         self.delete_button = QPushButton(qta.icon('fa5s.trash-alt', color='white'), " Supprimer")
         self.refresh_button = QPushButton(qta.icon('fa5s.sync-alt', color='white'), " Rafraîchir")
 
-        title_bar.addWidget(self.add_button)
-        title_bar.addWidget(self.edit_button)
-        title_bar.addWidget(self.delete_button)
-        title_bar.addSpacing(20)
-        title_bar.addWidget(self.refresh_button)
+        list_actions_layout.addWidget(self.add_button)
+        list_actions_layout.addWidget(self.edit_button)
+        list_actions_layout.addWidget(self.delete_button)
+        list_actions_layout.addSpacing(20)
+        list_actions_layout.addWidget(self.refresh_button)
+        left_layout.addLayout(list_actions_layout)
 
-        self.main_layout.addLayout(title_bar)
-
-        # --- Tableau des Clients ---
+        # Client table
         self.client_table = QTableWidget()
         self.client_table.setColumnCount(4)
         self.client_table.setHorizontalHeaderLabels(["ID", "Nom", "Code", "Commentaires"])
         header = self.client_table.horizontalHeader()
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        self.client_table.setColumnWidth(1, 250) # Largeur initiale pour le nom
+        self.client_table.setColumnWidth(1, 250)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
         self.client_table.setColumnWidth(2, 80)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)  # Commentaires
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.client_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.client_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.client_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -167,8 +179,47 @@ class ClientManagementView(QWidget):
         self.client_table.setAlternatingRowColors(True)
         self.client_table.verticalHeader().setVisible(False)
         self.client_table.setSortingEnabled(True)
+        left_layout.addWidget(self.client_table)
         
-        self.main_layout.addWidget(self.client_table)
+        self.splitter.addWidget(left_panel)
+
+        # --- Right Panel (Client Details) ---
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        
+        self.details_label = QLabel("Sélectionnez un client pour voir les détails")
+        self.details_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        right_layout.addWidget(self.details_label)
+
+        # Documents Section
+        self.documents_widget = QWidget()
+        documents_layout = QVBoxLayout(self.documents_widget)
+        
+        doc_title_layout = QHBoxLayout()
+        doc_title = QLabel("Documents")
+        doc_font = doc_title.font()
+        doc_font.setBold(True)
+        doc_title.setFont(doc_font)
+        doc_title_layout.addWidget(doc_title)
+        doc_title_layout.addStretch()
+        self.add_doc_button = QPushButton(qta.icon('fa5s.plus', color='white'), " Ajouter")
+        self.delete_doc_button = QPushButton(qta.icon('fa5s.trash-alt', color='white'), " Supprimer")
+        doc_title_layout.addWidget(self.add_doc_button)
+        doc_title_layout.addWidget(self.delete_doc_button)
+        documents_layout.addLayout(doc_title_layout)
+        
+        self.documents_table = QTableWidget()
+        self.documents_table.setColumnCount(2)
+        self.documents_table.setHorizontalHeaderLabels(["ID", "Nom du fichier"])
+        self.documents_table.hideColumn(0)
+        self.documents_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        documents_layout.addWidget(self.documents_table)
+        
+        right_layout.addWidget(self.documents_widget)
+        self.documents_widget.hide()
+        
+        self.splitter.addWidget(right_panel)
+        self.splitter.setSizes([400, 600])
 
         # --- Connexions ---
         self.add_button.clicked.connect(self.add_client)
@@ -177,8 +228,61 @@ class ClientManagementView(QWidget):
         self.refresh_button.clicked.connect(self.refresh_client_table)
         self.search_input.textChanged.connect(self.refresh_client_table)
         self.client_table.doubleClicked.connect(self.edit_client)
+        self.client_table.itemSelectionChanged.connect(self.display_client_details)
+        
+        self.add_doc_button.clicked.connect(self.add_document)
+        self.delete_doc_button.clicked.connect(self.delete_document)
 
         self.refresh_client_table()
+
+    def display_client_details(self):
+        client_id = self.get_selected_client_id()
+        if client_id:
+            self.details_label.hide()
+            self.documents_widget.show()
+            self.refresh_documents_table(client_id)
+        else:
+            self.details_label.show()
+            self.documents_widget.hide()
+
+    def refresh_documents_table(self, client_id):
+        self.documents_table.setRowCount(0)
+        documents = self.document_controller.get_documents_for('client', client_id)
+        for row, doc in enumerate(documents):
+            self.documents_table.insertRow(row)
+            self.documents_table.setItem(row, 0, QTableWidgetItem(str(doc['id'])))
+            self.documents_table.setItem(row, 1, QTableWidgetItem(doc['file_path']))
+
+    def add_document(self):
+        client_id = self.get_selected_client_id()
+        if not client_id:
+            QMessageBox.warning(self, "Aucun client sélectionné", "Veuillez sélectionner un client pour ajouter un document.")
+            return
+
+        file_path, _ = QFileDialog.getOpenFileName(self, "Sélectionner un fichier")
+        if file_path:
+            success, message = self.document_controller.add_document('client', client_id, file_path)
+            if success:
+                self.refresh_documents_table(client_id)
+            else:
+                QMessageBox.critical(self, "Erreur", message)
+
+    def delete_document(self):
+        selected_items = self.documents_table.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "Aucun document sélectionné", "Veuillez sélectionner un document à supprimer.")
+            return
+
+        doc_id = int(self.documents_table.item(selected_items[0].row(), 0).text())
+        reply = QMessageBox.question(self, "Confirmation", "Êtes-vous sûr de vouloir supprimer ce document ?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            success, message = self.document_controller.delete_document(doc_id)
+            if success:
+                client_id = self.get_selected_client_id()
+                self.refresh_documents_table(client_id)
+            else:
+                QMessageBox.critical(self, "Erreur", message)
 
     def refresh_client_table(self):
         # Disable sorting to improve performance during population

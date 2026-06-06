@@ -161,6 +161,7 @@ class Task(Base):
     lag_days = Column(Integer, default=0, nullable=False)
     date_debut_calculee = Column(Date)
     date_fin = Column(Date)
+    is_milestone = Column(Boolean, default=False, nullable=False)
     
     project_id = Column(Integer, ForeignKey('projects.id'), nullable=False, index=True)
     activity_type_id = Column(Integer, ForeignKey('activity_types.id'))
@@ -198,3 +199,40 @@ class TimeEntry(Base):
 
     def __repr__(self):
         return f"<TimeEntry(user_id={self.user_id}, task_id={self.task_id}, hours={self.hours_spent})>"
+
+
+class Document(Base):
+    __tablename__ = 'documents'
+
+    id = Column(Integer, primary_key=True)
+    file_path = Column(String(255), nullable=False)
+    documentable_id = Column(Integer, nullable=False)
+    documentable_type = Column(String(50), nullable=False)
+
+    __mapper_args__ = {
+        'polymorphic_on': documentable_type,
+    }
+
+    def __repr__(self):
+        return f"<Document(file_path='{self.file_path}')>"
+
+Project.documents = relationship("Document",
+    primaryjoin="and_(Project.id == Document.documentable_id, "
+                "Document.documentable_type == 'project')",
+    foreign_keys="[Document.documentable_id]",
+    viewonly=True,
+    cascade="all, delete-orphan")
+
+Task.documents = relationship("Document",
+    primaryjoin="and_(Task.id == Document.documentable_id, "
+                "Document.documentable_type == 'task')",
+    foreign_keys="[Document.documentable_id]",
+    viewonly=True,
+    cascade="all, delete-orphan")
+
+Client.documents = relationship("Document",
+    primaryjoin="and_(Client.id == Document.documentable_id, "
+                "Document.documentable_type == 'client')",
+    foreign_keys="[Document.documentable_id]",
+    viewonly=True,
+    cascade="all, delete-orphan")
