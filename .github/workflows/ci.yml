@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verifier:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: root-ci
+          MARIADB_USER: sdl
+          MARIADB_PASSWORD: sdl-ci
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Droits de création des bases de test
+        run: mysql -h 127.0.0.1 -uroot -proot-ci -e "GRANT ALL PRIVILEGES ON \`sdl\_%\`.* TO 'sdl'@'%'; FLUSH PRIVILEGES;"
+      - run: npm run typecheck
+      - run: npm test
+        env:
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_USER: sdl
+          TEST_DB_PASSWORD: sdl-ci
+      - run: npm run build

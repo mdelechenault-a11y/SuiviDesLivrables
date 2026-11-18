@@ -1,0 +1,15 @@
+{
+  "name": "suivi-des-livrables",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Suivi des Livrables : application web de pilotage des projets, des heures et des livrables, multi-filiales.",
+  "workspaces": ["server", "web"],
+  "scripts": {
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run build -w server && npm run build -w web",
+    "test": "npm run test -w server",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web"
+  },
+  "engines": { "node": ">=22" }
+}

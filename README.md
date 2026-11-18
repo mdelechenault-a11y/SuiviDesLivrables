@@ -1,71 +1,77 @@
 # Suivi des Livrables
 
-Application de suivi de projets et de livrables.
+Application web de pilotage des projets, des heures et des livrables, pour un groupe de plusieurs filiales.
+Elle remplace l'ancienne application de bureau Python/PyQt, archivée dans [`legacy/python-pyqt`](legacy/python-pyqt).
 
-## Prérequis
+- **Accès** : depuis un navigateur, sur le réseau interne ou par VPN. Rien à installer sur les postes.
+- **Connexion** : comptes Windows (Active Directory).
+- **Une base de données par filiale**, plus une base « groupe » pour les filiales, les utilisateurs et les droits.
+- **Droits vérifiés par le serveur** à chaque action, paramétrables par rôle depuis l'écran *Droits*.
 
-- **Python 3.10+**
-- **MySQL** (ou MariaDB) : L'application utilise une base de données MySQL par défaut. Vous devez avoir un serveur MySQL en cours d'exécution.
+Le fonctionnement détaillé est décrit dans [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Installation
+## Avancement
 
-1. **Cloner le dépôt (si ce n'est pas déjà fait) :**
-   ```bash
-   git clone <url_du_depot>
-   cd SuiviDesLivrables
-   ```
+| Étape | Contenu | État |
+| --- | --- | --- |
+| 1. Socle | Connexion AD, filiales et bases séparées, rôles et droits, pointage des heures, administration, installation Docker | Fait |
+| 2. Reprise de l'existant | Projets et Gantt, livrables et facturation, prévisionnel, KPI, calendrier, analyse hebdomadaire, clients, documents | À faire |
+| 3. Nouveaux modules | CRM (opportunités, leads en tickets), achats et réceptions, bilans des affaires, bilans financiers et simulation | À faire |
 
-2. **Créer un environnement virtuel (recommandé) :**
-   ```bash
-   python -m venv venv
-   ```
+## Installation sur une VM interne
 
-3. **Activer l'environnement virtuel :**
-   - Sur Windows :
-     ```bash
-     venv\Scripts\activate
-     ```
-   - Sur macOS/Linux :
-     ```bash
-     source venv/bin/activate
-     ```
+Prérequis : Docker et Docker Compose sur la VM.
 
-4. **Installer les dépendances :**
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+git clone https://github.com/mdelechenault-a11y/SuiviDesLivrables.git
+cd SuiviDesLivrables
+cp .env.example .env      # puis remplir le fichier (mots de passe, Active Directory, premier admin)
+docker compose up -d --build
+```
 
-5. **Configuration de la base de données :**
-   - Assurez-vous d'avoir un serveur MySQL accessible.
-   - Par défaut, l'application s'attend à trouver une base de données nommée `suivi_livrables` sur `localhost:3306` avec l'utilisateur `root` (sans mot de passe).
-   - **Important :** Modifiez les paramètres de connexion dans `config.py` selon votre environnement local (utilisateur, mot de passe, hôte, nom de la base de données).
+L'appli répond sur `http://<vm>:3000`. Pour l'HTTPS, placez-la derrière le reverse proxy habituel (IIS, Nginx…) et passez `COOKIE_SECURE=true`.
 
-## Initialisation et Lancement
+Au premier démarrage, l'appli crée la base groupe et le compte administrateur indiqué par `BOOTSTRAP_ADMIN_USERNAME` (son identifiant Windows). Cet administrateur crée ensuite les filiales (chacune reçoit sa base), puis les utilisateurs en choisissant leur rôle et leur filiale.
 
-1. **Synchronisation de la base de données :**
-   L'application gère automatiquement la création des tables et l'initialisation des données de base au démarrage. Cependant, vous pouvez exécuter le script de synchronisation manuellement si besoin :
-   ```bash
-   python db_sync.py
-   ```
+**Active Directory.** Il faut un compte de service en lecture seule sur l'annuaire (`LDAP_BIND_DN`, `LDAP_BIND_PASSWORD`). Préférez `ldaps://` (port 636) : le mot de passe des utilisateurs transite vers le contrôleur de domaine. `LDAP_REQUIRED_GROUP` permet de réserver l'accès à un groupe AD. Un utilisateur doit aussi avoir été créé dans l'appli pour pouvoir se connecter.
 
-2. **Lancer l'application :**
-   ```bash
-   python main.py
-   ```
+**Sauvegardes.** Toutes les données sont dans le volume Docker `db-data`. Sauvegardez chaque base `sdl_*` (par exemple avec `mariadb-dump --databases`) selon votre politique habituelle.
 
-## Scripts Utilitaires
+## Développement
 
-Plusieurs scripts sont disponibles à la racine du projet pour faciliter le développement et les tests :
+Prérequis : Node.js 22 et un serveur MariaDB ou MySQL local.
 
-- `seed_data.py` / `seed_advanced_data.py` : Scripts pour peupler la base de données avec des données de test (utilisateurs, projets, livrables, etc.).
-- `manage_db.py` : Fonctions utilitaires pour la gestion de la base de données (initialisation des données de production de base comme les profils et l'administrateur).
-- `migrate_sqlite_to_mysql.py` : Script pour migrer les données d'une ancienne base SQLite vers MySQL.
+```bash
+npm install
+# Fichier d'environnement de développement (mode local, sans Active Directory)
+cat > server/.env.local <<'EOF'
+DB_USER=sdl
+DB_PASSWORD=...
+SESSION_SECRET=une-chaine-de-32-caracteres-minimum-ici
+AUTH_MODE=local
+BOOTSTRAP_ADMIN_USERNAME=admin
+BOOTSTRAP_ADMIN_PASSWORD=admin-admin-123
+EOF
+cd server && set -a && . ./.env.local && set +a
+npm run seed:demo          # filiale DEMO + comptes demo.* (mot de passe demo-demo-demo)
+npm run dev                # API sur http://localhost:3000
+# dans un autre terminal
+npm run dev:web            # interface sur http://localhost:5173
+```
 
-## Dépendances Principales
+Commandes utiles, depuis la racine :
 
-- **PyQt6** : Interface graphique.
-- **SQLAlchemy** : ORM pour l'interaction avec la base de données.
-- **PyMySQL** : Connecteur MySQL pour Python.
-- **bcrypt** : Hachage des mots de passe.
-- **pandas** / **matplotlib** : Traitement de données et génération de graphiques (pour les vues statistiques).
-- **qt-material** / **qtawesome** : Thèmes et icônes pour l'interface utilisateur.
+- `npm test` : tests du serveur (il faut un MariaDB accessible ; voir `server/test/helpers.ts` pour les variables `TEST_DB_*`).
+- `npm run typecheck` : vérification des types du serveur et de l'interface.
+- `npm run build` : compilation de production.
+
+## Organisation du code
+
+```
+server/            API Node.js (Fastify, TypeScript)
+  src/modules/     un dossier par module métier (auth, admin, temps, puis projets, livrables, crm…)
+  src/db/          connexions, types et migrations (base groupe / base de filiale)
+  src/security/    rôles, permissions, contrôle d'accès
+web/               interface (Vue 3, TypeScript)
+legacy/            ancienne application Python, conservée pour référence
+```
